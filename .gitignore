@@ -1,0 +1,17 @@
+# Resultado de la construcción del paquete. El .deb sí se versiona, para poder
+# instalarlo sin tener que construirlo.
+*.buildinfo
+*.changes
+*.dsc
+*.tar.xz
+
+# Restos de debhelper (dpkg-buildpackage se lanza sobre una copia, pero por si
+# alguien construye en el propio árbol)
+recoverpass-greeter/debian/.debhelper/
+recoverpass-greeter/debian/recoverpass-greeter/
+recoverpass-greeter/debian/files
+recoverpass-greeter/debian/*.substvars
+recoverpass-greeter/debian/debhelper-build-stamp
+
+# macOS
+.DS_Store
