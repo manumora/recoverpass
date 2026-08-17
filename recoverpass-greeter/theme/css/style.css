@@ -1,0 +1,478 @@
+/*
+ * Tema «recoverpass» para web-greeter.
+ *
+ * Oscuro y sobrio, una sola columna centrada. Ni degradados ni animaciones
+ * decorativas. Cero recursos externos: la tipografía sale del paquete
+ * fonts-open-sans a través de los enlaces de ../fonts/.
+ */
+
+/* --- Tipografía ---------------------------------------------------------- */
+/* local() primero: dentro del greeter la fuente ya está instalada en el
+   sistema y así no se pide ningún fichero. La url() es la red de seguridad. */
+@font-face {
+  font-family: "Open Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: local("Open Sans"), local("OpenSans"),
+    url("../fonts/OpenSans-Regular.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Open Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: block;
+  src: local("Open Sans SemiBold"), local("OpenSans-Semibold"),
+    url("../fonts/OpenSans-Semibold.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Open Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: local("Open Sans Bold"), local("OpenSans-Bold"),
+    url("../fonts/OpenSans-Bold.ttf") format("truetype");
+}
+
+/* --- Paleta -------------------------------------------------------------- */
+/* Derivada de Dracula, rebajada: menos saturación y más contraste. Todas las
+   combinaciones de texto llegan a AA (4,5:1) o mejor. */
+:root {
+  --fondo: #14161d;
+  --superficie: #1d2029;
+  /* Bordes de controles: 3,45:1 y 4,82:1 sobre el fondo, por encima del 3:1
+     que pide la AA para elementos de interfaz. La línea decorativa no es un
+     control y puede ser mucho más discreta. */
+  --borde: #646c82;
+  --borde-fuerte: #7c8496;
+  --linea: #2b3040;
+  --texto: #f0f1f5;
+  --texto-tenue: #a9aec0;
+  --acento: #b48ef2;
+  --acento-claro: #c2a3f5;
+  --sobre-acento: #12121a;
+  --error: #ff9090;
+  --exito: #7fe0b0;
+
+  --radio: 8px;
+  --columna: 23rem;
+
+  /* Las fija greeter.js a partir de PRIMARY_COLOR y SECONDARY_COLOR. Aquí
+     quedan valores de reserva por si config.js no llegara a cargarse. */
+  --panel: rgba(20, 22, 29, 0.88);
+  --velo: rgba(0, 0, 0, 0.35);
+  --imagen-fondo: none;
+}
+
+/* --- Base ---------------------------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: "Open Sans", "DejaVu Sans", sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Foco de teclado siempre visible; el ratón no lo dibuja. */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+select,
+input {
+  font: inherit;
+}
+
+/* --- Columna central ----------------------------------------------------- */
+#pantalla {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+}
+
+/* Fondo con imagen. La clase la pone greeter.js sólo si hay imagen
+   configurada; sin ella todo queda como antes, con el fondo liso. */
+body.con-imagen {
+  background-image: var(--imagen-fondo);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* Velo sobre la fotografía: sin él, una imagen clara deja ilegible el texto de
+   la barra inferior, que va directamente encima. */
+body.con-imagen::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: var(--velo);
+  pointer-events: none;
+}
+
+body.con-imagen > * {
+  position: relative;
+}
+
+/* Con imagen de fondo, el formulario se agrupa en un panel para poder leerlo. */
+body.con-imagen #columna {
+  background: var(--panel);
+  padding: 2rem;
+  border-radius: calc(var(--radio) * 2);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+body.con-imagen #barra {
+  background: var(--panel);
+}
+
+#columna {
+  width: 100%;
+  max-width: var(--columna);
+}
+
+/* --- Reloj y equipo ------------------------------------------------------ */
+#reloj {
+  text-align: center;
+  margin-bottom: 0.25rem;
+}
+
+#hora {
+  display: block;
+  font-size: 3.25rem;
+  font-weight: 300;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+}
+
+#fecha {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--texto-tenue);
+  font-size: 0.875rem;
+}
+
+#centro {
+  margin: 0.75rem 0 0;
+  text-align: center;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+#equipo {
+  margin: 0.15rem 0 2.25rem;
+  text-align: center;
+  color: var(--texto-tenue);
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+}
+
+/* --- Formulario ---------------------------------------------------------- */
+#form-acceso {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.campo label {
+  display: block;
+  margin-bottom: 0.375rem;
+  color: var(--texto-tenue);
+  font-size: 0.8125rem;
+}
+
+.campo input,
+.campo select {
+  width: 100%;
+  padding: 0.75rem 0.875rem;
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  color: var(--texto);
+}
+
+.campo input::placeholder {
+  color: var(--texto-tenue);
+}
+
+.campo input:focus-visible,
+.campo select:focus-visible {
+  border-color: var(--acento);
+}
+
+.campo input:disabled,
+.campo select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.campo-con-boton {
+  position: relative;
+}
+
+.campo-con-boton input {
+  padding-right: 3rem;
+}
+
+.boton-icono {
+  position: absolute;
+  top: 50%;
+  right: 0.375rem;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radio);
+  color: var(--texto-tenue);
+}
+
+.boton-icono:hover,
+.boton-icono[aria-pressed="true"] {
+  color: var(--texto);
+}
+
+.boton-icono svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+/* --- Botones ------------------------------------------------------------- */
+.boton-primario {
+  margin-top: 0.5rem;
+  padding: 0.8125rem 1rem;
+  background: var(--acento);
+  border: 1px solid var(--acento);
+  border-radius: var(--radio);
+  color: var(--sobre-acento);
+  font-weight: 600;
+}
+
+.boton-primario:hover:not(:disabled) {
+  background: var(--acento-claro);
+  border-color: var(--acento-claro);
+}
+
+.boton-primario:disabled,
+.boton-secundario:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.boton-secundario {
+  width: 100%;
+  padding: 0.6875rem 1rem;
+  background: none;
+  border: 1px solid var(--borde-fuerte);
+  border-radius: var(--radio);
+  color: var(--texto);
+}
+
+.boton-secundario:hover:not(:disabled) {
+  border-color: var(--acento);
+  color: var(--acento);
+}
+
+/* --- Mensajes ------------------------------------------------------------ */
+#mensaje {
+  min-height: 1.25rem;
+  margin: 0.5rem 0 0;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--texto-tenue);
+}
+
+#mensaje.error {
+  color: var(--error);
+}
+
+#mensaje.exito {
+  color: var(--exito);
+}
+
+/* --- Zona de recuperación ------------------------------------------------ */
+/* Separada del acceso principal por una línea y por el espacio: es una acción
+   distinta, no una variante de «iniciar sesión». */
+#zona-recuperar {
+  margin-top: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--linea);
+  text-align: center;
+}
+
+#texto-recuperar {
+  margin: 0 0 0.75rem;
+  color: var(--texto-tenue);
+  font-size: 0.875rem;
+}
+
+/* --- Barra inferior ------------------------------------------------------ */
+#barra {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.875rem 1.5rem;
+  border-top: 1px solid var(--linea);
+  font-size: 0.8125rem;
+}
+
+#zona-sesion {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--texto-tenue);
+}
+
+#zona-sesion select {
+  padding: 0.375rem 0.5rem;
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  color: var(--texto);
+  font-size: 0.8125rem;
+}
+
+#zona-energia {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.boton-barra {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0.4375rem 0.625rem;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--texto-tenue);
+  font-size: 0.8125rem;
+}
+
+.boton-barra:hover {
+  border-color: var(--borde-fuerte);
+  color: var(--texto);
+}
+
+.boton-barra svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+
+/* --- Cubierta ------------------------------------------------------------ */
+#cubierta {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 2rem;
+  background: var(--fondo);
+  border: 0;
+  color: var(--texto);
+  font-size: 1.125rem;
+  text-align: center;
+}
+
+/* --- Pantallas pequeñas -------------------------------------------------- */
+@media (max-height: 620px) {
+  #hora {
+    font-size: 2.25rem;
+  }
+  #equipo {
+    margin-bottom: 1.5rem;
+  }
+}
+
+/* --- Movimiento reducido -------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------ diálogo de confirmación */
+
+#confirmacion {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+#confirmacion[hidden] {
+  display: none;
+}
+
+#confirmacion-caja {
+  width: 100%;
+  max-width: 26rem;
+  padding: 1.75rem;
+  border: 1px solid var(--linea);
+  border-radius: calc(var(--radio) * 2);
+  background: var(--fondo);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+
+#confirmacion-titulo {
+  margin: 0 0 1.5rem;
+  font-size: 1.0625rem;
+}
+
+#confirmacion-botones {
+  display: flex;
+  gap: 0.75rem;
+}
+
+#confirmacion-botones > button {
+  flex: 1 1 0;
+  margin: 0;
+}

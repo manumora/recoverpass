@@ -1,0 +1,113 @@
+#!/bin/sh
+# /usr/bin/recoverpass-update-policy
+#
+# Genera las políticas gestionadas del navegador del kiosco a partir de
+# /etc/recoverpass/recoverpass.conf y de la plantilla instalada en
+# /usr/share/recoverpass/chrome-policy.json.in.
+#
+# Se ejecuta desde el postinst y hay que volver a ejecutarlo a mano cada vez
+# que se cambie la configuración.
+#
+# Permisos: root:root 0755
+
+set -e
+
+CONF="${RECOVERPASS_CONF:-/etc/recoverpass/recoverpass.conf}"
+PLANTILLA="${RECOVERPASS_TEMPLATE:-/usr/share/recoverpass/chrome-policy.json.in}"
+# Rastro de la última ruta escrita, para que el postrm sepa qué borrar aunque
+# entretanto haya cambiado POLICY_DIR en la configuración.
+RASTRO="${RECOVERPASS_STATE:-/var/lib/recoverpass-greeter}/policy-path"
+
+aviso() { echo "recoverpass-update-policy: $*" >&2; }
+
+[ -r "$CONF" ] || { aviso "no se puede leer $CONF"; exit 1; }
+[ -r "$PLANTILLA" ] || { aviso "no se encuentra la plantilla $PLANTILLA"; exit 1; }
+
+PORTAL_URL=""
+ALLOWED_DOMAINS=""
+POLICY_DIR="/etc/chromium-browser/policies/managed"
+
+# shellcheck source=/dev/null
+. "$CONF"
+
+[ -n "$PORTAL_URL" ] || { aviso "PORTAL_URL está vacío en $CONF"; exit 1; }
+[ -n "$POLICY_DIR" ] || { aviso "POLICY_DIR está vacío en $CONF"; exit 1; }
+
+# Escapa una cadena para meterla en un literal JSON.
+escapar_json() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+# Host (con puerto, si lo lleva) de una URL: se le quitan el esquema, las
+# credenciales y todo lo que vaya de la barra en adelante.
+host_de_url() {
+    printf '%s' "$1" | sed -E 's|^[a-zA-Z][a-zA-Z0-9+.-]*://||; s|^[^@/]*@||; s|[/?#].*$||'
+}
+
+# Lista de permitidos: el portal más los dominios adicionales.
+#
+# Del portal se permite el HOST entero, no sólo la URL exacta: una página carga
+# sus propios JS, CSS e imágenes desde otras rutas del mismo sitio, y con
+# «URLBlocklist: ["*"]» todo lo que no esté aquí queda bloqueado. Permitiendo el
+# host, el portal funciona completo sin repetirlo en ALLOWED_DOMAINS.
+PORTAL_HOST=$(host_de_url "$PORTAL_URL")
+[ -n "$PORTAL_HOST" ] || PORTAL_HOST="$PORTAL_URL"
+
+LISTA=""
+VISTAS=""
+for entrada in $PORTAL_HOST $ALLOWED_DOMAINS; do
+    [ -n "$entrada" ] || continue
+    # Sin repetidos, por si el dominio del portal también aparece en ALLOWED_DOMAINS
+    case " $VISTAS " in
+        *" $entrada "*) continue ;;
+    esac
+    VISTAS="$VISTAS $entrada"
+
+    esc=$(escapar_json "$entrada")
+    if [ -z "$LISTA" ]; then
+        LISTA="\"$esc\""
+    else
+        LISTA="$LISTA, \"$esc\""
+    fi
+done
+LISTA="[$LISTA]"
+
+DESTINO="$POLICY_DIR/recoverpass.json"
+
+# Se anota qué niveles de POLICY_DIR no existían, para que el postrm sólo
+# retire directorios creados por este paquete.
+ESTADO_DIR=$(dirname "$RASTRO")
+mkdir -p "$ESTADO_DIR"
+pendientes=""
+d="$POLICY_DIR"
+while [ -n "$d" ] && [ "$d" != "/" ] && [ ! -d "$d" ]; do
+    pendientes="$d
+$pendientes"
+    d=$(dirname "$d")
+done
+mkdir -p "$POLICY_DIR"
+if [ -n "$pendientes" ]; then
+    printf '%s\n' "$pendientes" | sed '/^$/d' >> "$ESTADO_DIR/dirs-creados"
+fi
+
+TMP=$(mktemp "${TMPDIR:-/tmp}/recoverpass-policy.XXXXXXXX")
+# El separador es «|» y ni la lista ni la plantilla lo llevan; aun así se
+# escapan las barras invertidas para que sed no las interprete.
+LISTA_SED=$(printf '%s' "$LISTA" | sed -e 's/[\\&]/\\&/g' -e 's/|/\\|/g')
+sed "s|@URL_ALLOWLIST@|$LISTA_SED|" "$PLANTILLA" > "$TMP"
+
+# Comprobación mínima: que la sustitución se ha hecho de verdad.
+if grep -q '@URL_ALLOWLIST@' "$TMP"; then
+    rm -f "$TMP"
+    aviso "la sustitución de la lista de permitidos ha fallado; no se toca $DESTINO"
+    exit 1
+fi
+
+mv "$TMP" "$DESTINO"
+chmod 0644 "$DESTINO"
+chown root:root "$DESTINO" 2>/dev/null || true
+
+mkdir -p "$(dirname "$RASTRO")"
+printf '%s\n' "$DESTINO" > "$RASTRO"
+
+echo "recoverpass-update-policy: escrito $DESTINO (permitidos: $LISTA)"

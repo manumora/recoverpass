@@ -1,0 +1,31 @@
+#!/bin/sh
+# prerm de recoverpass-greeter
+#
+# El drop-in que selecciona el greeter se retira AQUÍ, antes de que dpkg borre
+# los ficheros del paquete. Si se hiciera en el postrm, entre el borrado del
+# tema y la ejecución del postrm habría una ventana en la que LightDM apuntaría
+# a un greeter cuyo tema ya no existe.
+#
+# El resto de la reversión (bloque de PAM, políticas, AccountsService, cuenta)
+# va en el postrm: si la desinstalación se aborta, el postinst vuelve a
+# escribir este fichero.
+
+set -e
+
+DROPIN=/etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf
+
+case "$1" in
+    remove|deconfigure)
+    if [ -f "$DROPIN" ]; then
+        rm -f "$DROPIN"
+        echo "recoverpass-greeter: retirado $DROPIN; LightDM vuelve al greeter anterior."
+    fi
+    ;;
+
+    upgrade|failed-upgrade)
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

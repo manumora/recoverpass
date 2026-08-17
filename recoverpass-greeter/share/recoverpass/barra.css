@@ -1,0 +1,19 @@
+/*
+ * Aspecto de la barra inferior del kiosco (botón «Salir»).
+ *
+ * Lo carga GTK3 solo: el script lo copia a ~/.config/gtk-3.0/gtk.css de la
+ * cuenta del kiosco al arrancar la sesión, porque yad 0.40 no admite --css.
+ * Sólo afecta a esa sesión, que no ejecuta ninguna otra aplicación gráfica.
+ *
+ * Si se cambia algo aquí, la barra se redimensiona sola: el script mide su
+ * altura real antes de colocar el navegador.
+ */
+
+button {
+    min-height: 46px;      /* alto del botón */
+    min-width: 260px;      /* ancho del botón */
+    padding: 8px 32px;
+    margin-bottom: 14px;   /* separación con el borde inferior de la pantalla */
+    font-size: 17pt;
+    font-weight: bold;
+}

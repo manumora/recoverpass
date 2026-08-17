@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tema recoverpass — entorno de pruebas</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 2.5rem 1.5rem;
+        background: #14161d;
+        color: #f0f1f5;
+        font-family: "Open Sans", "DejaVu Sans", sans-serif;
+        line-height: 1.6;
+      }
+      main {
+        max-width: 42rem;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 1.5rem;
+        font-weight: 600;
+      }
+      h2 {
+        margin-top: 2.5rem;
+        font-size: 1.125rem;
+        font-weight: 600;
+      }
+      p,
+      li {
+        color: #d5d8e2;
+      }
+      code {
+        padding: 0.1rem 0.35rem;
+        background: #1d2029;
+        border-radius: 4px;
+        font-size: 0.9em;
+      }
+      ul {
+        padding-left: 1.25rem;
+      }
+      li {
+        margin-bottom: 0.5rem;
+      }
+      a {
+        color: #b48ef2;
+      }
+      a:focus-visible {
+        outline: 2px solid #b48ef2;
+        outline-offset: 2px;
+      }
+      .nota {
+        margin-top: 2.5rem;
+        padding: 1rem 1.25rem;
+        border-left: 3px solid #4d5468;
+        color: #a9aec0;
+        font-size: 0.9375rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Tema «recoverpass» — entorno de pruebas</h1>
+
+      <p>
+        Estos enlaces abren el tema con un objeto <code>lightdm</code> simulado,
+        para poder trabajar el diseño y los flujos de error en un Chrome normal,
+        sin reiniciar LightDM. La contraseña de los usuarios de prueba es
+        <code>demo</code>.
+      </p>
+
+      <h2>Escenarios</h2>
+      <ul>
+        <li>
+          <a href="../index.html">Normal</a> — lista de usuarios, acceso
+          correcto con <code>demo</code> y recuperación que entra sin preguntar,
+          como con <code>pam_succeed_if</code>.
+        </li>
+        <li>
+          <a href="../index.html?prompt=1">PAM sí pregunta</a> — la recuperación
+          recibe un <code>show_prompt</code>; el tema debe responder con la
+          cadena vacía y continuar.
+        </li>
+        <li>
+          <a href="../index.html?fallo=acceso">Fallo de acceso</a> — cualquier
+          contraseña se rechaza; debe volver al estado inicial con mensaje.
+        </li>
+        <li>
+          <a href="../index.html?fallo=recuperacion">Fallo de recuperación</a> —
+          la autenticación de <code>recoverpass</code> falla; el botón debe
+          desbloquearse y avisar, nunca quedarse colgado.
+        </li>
+        <li>
+          <a href="../index.html?fallo=sesion">Fallo de start_session</a> — la
+          autenticación va bien pero la sesión no arranca; debe retirarse la
+          cubierta y avisar.
+        </li>
+        <li>
+          <a href="../index.html?silencio=1">LightDM mudo</a> — no llega
+          ninguna respuesta; a los 20 s debe saltar el vigilante y volver al
+          estado inicial.
+        </li>
+        <li>
+          <a href="../index.html?usuarios=0">Sin lista de usuarios</a> —
+          <code>hide_users_hint</code>; sólo campo de texto.
+        </li>
+      </ul>
+
+      <h2>Qué comprobar</h2>
+      <ul>
+        <li>La consola no muestra ningún error.</li>
+        <li>
+          Todo se puede manejar sólo con el teclado, y el foco se ve siempre.
+        </li>
+        <li>
+          Después de cualquier fallo se puede volver a intentar sin recargar la
+          página.
+        </li>
+      </ul>
+
+      <div class="nota">
+        El simulado sólo se activa fuera del greeter: comprueba
+        <code>window._ready_event</code> y <code>window.qt</code>, que
+        web-greeter define al crear el documento. Dentro del greeter real este
+        fichero no hace nada.
+      </div>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,299 @@
+#!/bin/sh
+# postinst de recoverpass-greeter
+#
+# Todo lo que hace aquí es idempotente: instalar dos veces no duplica la cuenta,
+# ni la línea de PAM, ni ningún fichero. Lo que se toca de otros paquetes se
+# reduce a un bloque delimitado en /etc/pam.d/lightdm, con copia previa.
+
+set -e
+
+USUARIO=recoverpass
+# El home va en /var/lib y NO en /home: en estos equipos /home lo gestiona
+# autofs con el mapa en LDAP (ou=auto.home,ou=Automount,...), así que no se
+# pueden crear directorios ahí. Si se intenta, adduser falla al crear el home.
+HOME_KIOSCO=/var/lib/recoverpass
+PAMFILE=/etc/pam.d/lightdm
+PAM_INI='# BEGIN recoverpass-greeter'
+PAM_FIN='# END recoverpass-greeter'
+PAM_LINEA='auth  sufficient  pam_succeed_if.so user = recoverpass quiet'
+DROPIN=/etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf
+GREETER_DESKTOP=/usr/share/xgreeters/recoverpass-greeter.desktop
+AS_DIR=/var/lib/AccountsService/users
+AS_FILE="$AS_DIR/$USUARIO"
+COPIAS=/var/backups/recoverpass-greeter
+ESTADO=/var/lib/recoverpass-greeter
+CONF=/etc/recoverpass/recoverpass.conf
+
+aviso() { echo "recoverpass-greeter: $*" >&2; }
+
+# Crea un directorio anotando qué niveles no existían, para que el postrm sólo
+# retire lo que creó este paquete y jamás un directorio de otro.
+registrar_y_crear() {
+    ruta=$1
+    pendientes=""
+    d=$ruta
+    while [ -n "$d" ] && [ "$d" != "/" ] && [ ! -d "$d" ]; do
+        pendientes="$d
+$pendientes"
+        d=$(dirname "$d")
+    done
+    mkdir -p "$ruta"
+    if [ -n "$pendientes" ]; then
+        printf '%s\n' "$pendientes" | sed '/^$/d' >> "$ESTADO/dirs-creados"
+    fi
+}
+
+case "$1" in
+    configure)
+
+    mkdir -p "$COPIAS" "$ESTADO"
+    chmod 0755 "$COPIAS" "$ESTADO"
+
+    # --- 1. Cuenta local restringida ---------------------------------------
+    # Sólo local, nunca en LDAP: así no hereda políticas del directorio.
+    # Se conserva el shell (LightDM lanza la sesión a través de él).
+    if getent passwd "$USUARIO" >/dev/null 2>&1; then
+        echo "recoverpass-greeter: la cuenta «$USUARIO» ya existe; no se toca."
+        # Si viene de una versión anterior, su home puede estar bajo /home, que
+        # aquí lo sirve autofs: la sesión no podría escribir el perfil del
+        # navegador. Se avisa en lugar de mover el home por nuestra cuenta.
+        HOME_ACTUAL=$(getent passwd "$USUARIO" | cut -d: -f6)
+        case "$HOME_ACTUAL" in
+            "$HOME_KIOSCO") ;;
+            /home/*)
+                aviso "ATENCIÓN: la cuenta «$USUARIO» tiene el home en $HOME_ACTUAL."
+                aviso "  En estos equipos /home lo gestiona autofs, así que la sesión"
+                aviso "  del kiosco no podrá escribir ahí. Muévalo con:"
+                aviso "      sudo usermod -d $HOME_KIOSCO -m $USUARIO"
+                ;;
+        esac
+    else
+        # El grupo se crea aparte, antes que la cuenta, y a propósito: cuando
+        # adduser falla por cualquier motivo intenta deshacer lo hecho con
+        # «groupdel», y si el grupo no llegó a existir esa limpieza falla con
+        # «el grupo no existe» (código 6) y aborta la instalación entera con un
+        # mensaje que no dice nada del fallo real.
+        if ! getent group "$USUARIO" >/dev/null 2>&1; then
+            addgroup --quiet "$USUARIO" || true
+        fi
+
+        # GECOS sin acentos: chfn avisa ante caracteres no ASCII y, según su
+        # configuración (CHFN_RESTRICT) y versión, puede rechazarlos; ese fallo
+        # bastaría para abortar el postinst.
+        # Sin redirigir la salida: si adduser falla, interesa ver por qué.
+        if adduser --quiet --disabled-password --gecos "Recuperar contrasena" \
+                   --ingroup "$USUARIO" --home "$HOME_KIOSCO" "$USUARIO"; then
+            echo "recoverpass-greeter: creada la cuenta local «$USUARIO»."
+            # Marca de que la cuenta la creó el paquete: sólo entonces se borrará
+            # al purgar, para no llevarse por delante una cuenta preexistente.
+            : > "$ESTADO/cuenta-creada-por-el-paquete"
+        else
+            aviso "ATENCIÓN: no se ha podido crear la cuenta «$USUARIO»."
+            aviso "  Revise el error de adduser que aparece más arriba. Puede"
+            aviso "  crearla a mano y volver a configurar el paquete:"
+            aviso "      sudo adduser --disabled-password --gecos '' \\"
+            aviso "           --home $HOME_KIOSCO $USUARIO"
+            aviso "      sudo dpkg --configure recoverpass-greeter"
+            exit 1
+        fi
+    fi
+
+    # Sin contraseña utilizable y fuera de sudo, siempre (por si alguien la
+    # tocó a mano entre instalaciones).
+    passwd -l "$USUARIO" >/dev/null 2>&1 || true
+    deluser --quiet "$USUARIO" sudo >/dev/null 2>&1 || true
+
+    # --- 1b. Que los snaps admitan un home fuera de /home -------------------
+    # Chromium es un snap y su confinamiento sólo permite $HOME bajo /home. Con
+    # el home del kiosco en /var/lib, el navegador arranca y muere al instante
+    # sin poder crear su perfil. snapd 2.61+ permite declarar otras rutas.
+    DIR_HOMES=$(dirname "$HOME_KIOSCO")   # /var/lib
+    if command -v snap >/dev/null 2>&1; then
+        ACTUAL=$(snap get system homedirs 2>/dev/null || true)
+        case ",$ACTUAL," in
+            *",$DIR_HOMES,"*)
+                ;;  # ya declarado, no se toca
+            *)
+                # Se añade al valor existente en vez de sustituirlo: puede haber
+                # otros directorios declarados por el centro.
+                if [ -n "$ACTUAL" ]; then
+                    NUEVO="$ACTUAL,$DIR_HOMES"
+                else
+                    NUEVO="$DIR_HOMES"
+                    # Sólo si lo pusimos nosotros se quitará al purgar.
+                    : > "$ESTADO/homedirs-anadido-por-el-paquete"
+                fi
+                if snap set system homedirs="$NUEVO" >/dev/null 2>&1; then
+                    echo "recoverpass-greeter: snapd admite ahora homes en $DIR_HOMES."
+                else
+                    rm -f "$ESTADO/homedirs-anadido-por-el-paquete"
+                    aviso "ATENCIÓN: no se ha podido configurar «snap set system homedirs»."
+                    aviso "  Hace falta snapd 2.61 o posterior. Sin esto, Chromium (snap)"
+                    aviso "  no arrancará en la sesión del kiosco, porque su home está en"
+                    aviso "  $HOME_KIOSCO y el confinamiento sólo permite /home."
+                    aviso "  Alternativa: usar Google Chrome (BROWSER en $CONF)."
+                fi
+                ;;
+        esac
+    fi
+
+    # --- 2. Ocultar la cuenta de la lista del greeter -----------------------
+    # El botón del tema llama a start_session("recoverpass") explícitamente,
+    # así que ocultarla no impide que arranque.
+    registrar_y_crear "$AS_DIR"
+    if [ -e "$AS_FILE" ] && ! grep -q 'recoverpass-greeter' "$AS_FILE" 2>/dev/null; then
+        [ -e "$COPIAS/AccountsService-$USUARIO.orig" ] || \
+            cp -a "$AS_FILE" "$COPIAS/AccountsService-$USUARIO.orig"
+    fi
+    cat > "$AS_FILE" <<'EOF'
+# Gestionado por recoverpass-greeter. Se borra al desinstalar el paquete.
+[User]
+SystemAccount=true
+XSession=recoverpass
+EOF
+    chmod 0644 "$AS_FILE"
+
+    # --- 3. Acceso sin contraseña sólo para esa cuenta ---------------------
+    # /etc/pam.d/lightdm es conffile del paquete lightdm: se edita con
+    # marcadores, copia previa y borrado exacto en el postrm.
+    #
+    # No se usa un perfil de pam-auth-update a propósito: eso tocaría
+    # common-auth, que afecta también a login, sshd y sudo.
+    if [ -f "$PAMFILE" ]; then
+        [ -e "$COPIAS/pam.d-lightdm.orig" ] || cp -a "$PAMFILE" "$COPIAS/pam.d-lightdm.orig"
+
+        tmp=$(mktemp)
+        # Quita un bloque anterior (idempotencia) y añade el nuestro al
+        # principio, antes de @include common-auth.
+        sed "/^$PAM_INI\$/,/^$PAM_FIN\$/d" "$PAMFILE" > "$tmp.limpio"
+        {
+            printf '%s\n%s\n%s\n' "$PAM_INI" "$PAM_LINEA" "$PAM_FIN"
+            cat "$tmp.limpio"
+        } > "$tmp"
+
+        # Comprobación antes de pisar nada: el resultado tiene que contener
+        # nuestra línea y seguir teniendo el contenido original. Si algo no
+        # cuadra, se deja el fichero como estaba: mejor sin botón que sin login.
+        if [ -s "$tmp" ] && grep -q 'pam_succeed_if.so user = recoverpass' "$tmp" &&
+           [ "$(sed "/^$PAM_INI\$/,/^$PAM_FIN\$/d" "$tmp" | md5sum)" = \
+             "$(sed "/^$PAM_INI\$/,/^$PAM_FIN\$/d" "$PAMFILE" | md5sum)" ]; then
+            cat "$tmp" > "$PAMFILE"   # se conservan dueño, permisos e inodo
+        else
+            aviso "ATENCIÓN: no se ha podido editar $PAMFILE con garantías."
+            aviso "  El fichero se ha dejado como estaba y el botón de"
+            aviso "  recuperación pedirá contraseña. Revíselo a mano."
+        fi
+        rm -f "$tmp" "$tmp.limpio"
+    else
+        aviso "ATENCIÓN: no existe $PAMFILE. ¿Está instalado lightdm?"
+    fi
+
+    # --- 4. Políticas del navegador ----------------------------------------
+    if command -v recoverpass-update-policy >/dev/null 2>&1; then
+        if recoverpass-update-policy; then :; else
+            aviso "no se han podido generar las políticas del navegador."
+        fi
+    fi
+
+    # --- 4b. Apariencia del greeter ----------------------------------------
+    # El tema es una página web que no puede leer la configuración del kiosco:
+    # se le vuelca aquí, en su config.js.
+    if command -v recoverpass-update-theme >/dev/null 2>&1; then
+        if recoverpass-update-theme >/dev/null; then :; else
+            aviso "no se ha podido generar la apariencia del greeter."
+        fi
+    fi
+
+    # --- 5. Selección del greeter ------------------------------------------
+    # Drop-in propio: no se toca /etc/lightdm/lightdm.conf.
+    #
+    # Si web-greeter no está instalado NO se escribe nada: apuntar el greeter a
+    # un programa que no existe deja el equipo sin pantalla de acceso.
+    if command -v web-greeter >/dev/null 2>&1 || [ -x /opt/web-greeter/web-greeter ]; then
+        if [ -f "$GREETER_DESKTOP" ]; then
+            registrar_y_crear /etc/lightdm/lightdm.conf.d
+            cat > "$DROPIN" <<'EOF'
+# Gestionado por recoverpass-greeter. Se borra al desinstalar el paquete.
+# Apunta a /usr/share/xgreeters/recoverpass-greeter.desktop, que lanza
+# web-greeter con el tema «recoverpass».
+[Seat:*]
+greeter-session=recoverpass-greeter
+EOF
+            chmod 0644 "$DROPIN"
+            echo "recoverpass-greeter: greeter seleccionado en $DROPIN."
+        fi
+
+        # /etc/lightdm/lightdm.conf se lee DESPUÉS de lightdm.conf.d y gana.
+        if [ -f /etc/lightdm/lightdm.conf ] &&
+           grep -Eq '^[[:space:]]*greeter-session[[:space:]]*=' /etc/lightdm/lightdm.conf; then
+            aviso "ATENCIÓN: /etc/lightdm/lightdm.conf define greeter-session y"
+            aviso "  se lee después de lightdm.conf.d, así que su valor tiene"
+            aviso "  prioridad sobre $DROPIN. Comente esa línea si quiere que"
+            aviso "  se use el greeter del kiosco."
+        fi
+    else
+        # Este es el motivo más habitual de que «se instale bien» y la pantalla
+        # de acceso siga igual, así que el aviso va con la solución concreta.
+        # No se instala aquí porque dpkg tiene tomada su base de datos mientras
+        # corre el postinst: cualquier apt/dpkg fallaría por el bloqueo.
+        aviso ""
+        aviso "======================================================================"
+        aviso " web-greeter no está instalado, así que NO se ha cambiado el greeter:"
+        aviso " la pantalla de acceso seguirá siendo la de siempre."
+        aviso ""
+        aviso " El paquete ya trae web-greeter. Para terminar la instalación:"
+        aviso ""
+        aviso "     sudo recoverpass-instalar-greeter"
+        aviso "     sudo systemctl restart lightdm"
+        aviso "======================================================================"
+        aviso ""
+    fi
+
+    # --- 6. Comprobaciones y avisos ----------------------------------------
+    NAVEGADOR_CONF=chromium-browser
+    PORTAL_CONF=""
+    if [ -r "$CONF" ]; then
+        # shellcheck source=/dev/null
+        NAVEGADOR_CONF=$(. "$CONF"; printf '%s' "${BROWSER:-chromium-browser}")
+        # shellcheck source=/dev/null
+        PORTAL_CONF=$(. "$CONF"; printf '%s' "${PORTAL_URL:-}")
+    fi
+
+    case "$NAVEGADOR_CONF" in
+        google-chrome|google-chrome-stable|chrome) BUSCAR="google-chrome-stable google-chrome" ;;
+        *) BUSCAR="$NAVEGADOR_CONF chromium chromium-browser /snap/bin/chromium" ;;
+    esac
+    ENCONTRADO=""
+    for c in $BUSCAR; do
+        if command -v "$c" >/dev/null 2>&1; then
+            ENCONTRADO=$c
+            break
+        fi
+    done
+    if [ -z "$ENCONTRADO" ]; then
+        aviso "ATENCIÓN: no se encuentra el navegador «$NAVEGADOR_CONF»."
+        aviso "  El botón de recuperación arrancará la sesión pero no abrirá"
+        aviso "  nada. Instálelo, por ejemplo:  sudo snap install chromium"
+    fi
+
+    case "$PORTAL_CONF" in
+        ""|*example.local*)
+            aviso "ATENCIÓN: PORTAL_URL sigue siendo el valor de ejemplo."
+            aviso "  Edite $CONF con la URL real del portal y después ejecute:"
+            aviso "      sudo recoverpass-update-policy"
+            ;;
+    esac
+    ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+
+    *)
+    echo "postinst llamado con argumento desconocido «$1»" >&2
+    exit 1
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

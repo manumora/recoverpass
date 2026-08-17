@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acceso al sistema</title>
+    <link rel="stylesheet" href="css/style.css" />
+    <style>
+      /* Pantallas secundarias: sólo el reloj, sin ningún control. El acceso se
+         hace siempre en la pantalla principal. */
+      #columna {
+        text-align: center;
+      }
+      #aviso {
+        margin-top: 2rem;
+        color: var(--texto-tenue);
+        font-size: 0.875rem;
+      }
+    </style>
+  </head>
+
+  <body>
+    <main id="pantalla">
+      <div id="columna">
+        <div id="reloj">
+          <span id="hora">--:--</span>
+          <span id="fecha"></span>
+        </div>
+        <p id="aviso">Inicie sesión en la pantalla principal.</p>
+      </div>
+    </main>
+
+    <script>
+      /* Sin dependencias y con red de seguridad: si esto fallara, la pantalla
+         secundaria se quedaría con la hora a «--:--», nada más. */
+      (function () {
+        "use strict";
+        function pintar() {
+          try {
+            var ahora = new Date();
+            var hora = document.getElementById("hora");
+            var fecha = document.getElementById("fecha");
+            if (hora) {
+              hora.textContent = new Intl.DateTimeFormat("es-ES", {
+                hour: "2-digit",
+                minute: "2-digit"
+              }).format(ahora);
+            }
+            if (fecha) {
+              fecha.textContent = new Intl.DateTimeFormat("es-ES", {
+                weekday: "long",
+                day: "numeric",
+                month: "long"
+              }).format(ahora);
+            }
+          } catch (error) {
+            if (window.console && console.error) {
+              console.error("[recoverpass] reloj secundario", error);
+            }
+          }
+        }
+        pintar();
+        window.setInterval(pintar, 10000);
+      })();
+    </script>
+  </body>
+</html>

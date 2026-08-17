@@ -1,0 +1,49 @@
+{
+  "_comentario": "GENERADO AUTOMÁTICAMENTE por recoverpass-update-policy a partir de /etc/recoverpass/recoverpass.conf. No edite este fichero: los cambios se pierden. Edite la configuración y vuelva a ejecutar 'sudo recoverpass-update-policy'.",
+
+  "URLBlocklist": ["*"],
+  "URLAllowlist": @URL_ALLOWLIST@,
+
+  "IncognitoModeAvailability": 1,
+  "DeveloperToolsAvailability": 2,
+  "DownloadRestrictions": 3,
+  "PromptForDownloadLocation": false,
+  "AllowFileSelectionDialogs": false,
+  "PrintingEnabled": false,
+  "TaskManagerEndProcessEnabled": false,
+
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+  "PasswordManagerEnabled": false,
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+
+  "BookmarkBarEnabled": false,
+  "EditBookmarksEnabled": false,
+  "DefaultPopupsSetting": 2,
+  "DefaultFileSystemReadGuardSetting": 2,
+  "DefaultFileSystemWriteGuardSetting": 2,
+  "DefaultNotificationsSetting": 2,
+  "DefaultGeolocationSetting": 2,
+
+  "MetricsReportingEnabled": false,
+  "DefaultBrowserSettingEnabled": false,
+  "BackgroundModeEnabled": false,
+
+  "TranslateEnabled": false,
+  "CommandLineFlagSecurityWarningsEnabled": false,
+  "PromotionalTabsEnabled": false,
+  "ShowHomeButton": false,
+  "HideWebStoreIcon": true,
+  "SpellcheckEnabled": false,
+  "SearchSuggestEnabled": false,
+  "ImportAutofillFormData": false,
+  "ImportBookmarks": false,
+  "ImportHistory": false,
+  "ImportSavedPasswords": false,
+  "ImportSearchEngine": false,
+  "HighEfficiencyModeEnabled": false,
+  "PrivacySandboxPromptEnabled": false,
+  "DefaultSensorsSetting": 2,
+  "DefaultMediaStreamSetting": 2
+}

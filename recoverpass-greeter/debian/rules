@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+# Construcción del paquete: debhelper hace todo el trabajo.
+
+%:
+	dh $@
+
+# El tema y el mock son ficheros de datos: nada que compilar ni que comprimir
+# dentro de /usr/share/web-greeter.
+override_dh_compress:
+	dh_compress --exclude=/usr/share/web-greeter/

@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=Recuperación de contraseña (Web Greeter)
+Comment=LightDM Web Greeter con el tema recoverpass
+Exec=env QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu web-greeter --theme recoverpass
+Type=Application

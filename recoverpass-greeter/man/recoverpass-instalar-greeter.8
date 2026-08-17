@@ -1,0 +1,55 @@
+.TH RECOVERPASS-INSTALAR-GREETER 8 "2026-08-16" "recoverpass-greeter 1.0.2" "Manual del administrador"
+.SH NOMBRE
+recoverpass\-instalar\-greeter \- instala web\-greeter y activa el greeter del kiosco
+.SH SINOPSIS
+.B sudo recoverpass\-instalar\-greeter
+.SH DESCRIPCIÓN
+Instala el
+.B web\-greeter
+que viaja dentro del paquete, en
+.IR /usr/share/recoverpass/web-greeter-3.5.3-ubuntu.deb ,
+y a continuación vuelve a configurar
+.B recoverpass\-kiosk
+para que seleccione el greeter del kiosco.
+.PP
+Si
+.B web\-greeter
+ya estaba instalado no se reinstala: sólo se reconfigura el paquete.
+.SH POR QUÉ HACE FALTA
+El postinst de un paquete no puede instalar otro paquete: mientras se ejecuta,
+dpkg tiene tomada su base de datos y cualquier
+.BR dpkg (1)
+o
+.BR apt (8)
+falla con
+.RB \(lq "dpkg frontend lock was locked by another process" \(rq.
+.PP
+Por eso el
+.B .deb
+de web\-greeter se distribuye dentro del paquete pero lo instala el
+administrador con esta orden, en un solo paso.
+.PP
+Sin
+.BR web\-greeter ,
+el postinst
+.B no
+cambia el greeter a propósito: apuntar LightDM a un programa que no existe
+dejaría el equipo sin pantalla de acceso.
+.SH DESPUÉS
+Hay que reiniciar la pantalla de acceso para ver el cambio:
+.PP
+.RS
+.B sudo systemctl restart lightdm
+.RE
+.SH AVISOS
+.SS /etc/lightdm/lightdm.conf tiene prioridad
+Ese fichero se lee
+.B después
+de
+.IR /etc/lightdm/lightdm.conf.d ,
+así que si define
+.B greeter\-session
+su valor gana sobre el del kiosco. El postinst avisa cuando ocurre.
+.SH VÉASE TAMBIÉN
+.BR recoverpass-session (1),
+.BR recoverpass-update-policy (8)

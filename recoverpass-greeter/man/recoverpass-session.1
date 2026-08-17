@@ -1,0 +1,61 @@
+.TH RECOVERPASS-SESSION 1 "2026-08-15" "recoverpass-greeter 1.0.0" "Manual del usuario"
+.SH NOMBRE
+recoverpass\-session \- sesión kiosco de recuperación de contraseña
+.SH SINOPSIS
+.B recoverpass\-session
+.SH DESCRIPCIÓN
+Arranca la sesión restringida del usuario local
+.BR recoverpass .
+Abre el navegador configurado en modo aplicación sobre el portal de
+autoservicio de contraseñas, sin barra de direcciones, sin pestañas y sin
+gestor de ventanas, y muestra una barra inferior con un botón
+.B Salir
+que cierra la sesión y devuelve a la pantalla de acceso.
+.PP
+No se ejecuta a mano: lo lanza LightDM a partir de
+.IR /usr/share/xsessions/recoverpass.desktop ,
+cuando el tema del greeter llama a
+.BR "lightdm.start_session(\(dqrecoverpass\(dq)" .
+.PP
+El perfil del navegador se borra al entrar y al salir, de modo que no queda
+nada de una sesión para la siguiente. Un vigilante cierra la sesión pasados
+.B TIMEOUT
+segundos ocurra lo que ocurra.
+.SH CONFIGURACIÓN
+Toda la configuración está en
+.IR /etc/recoverpass/recoverpass.conf ,
+que este programa lee al arrancar. En el script no hay ninguna URL
+incrustada. Las variables son
+.BR PORTAL_URL ,
+.BR ALLOWED_DOMAINS ,
+.BR TIMEOUT ,
+.BR KEYBOARD_LAYOUT ,
+.BR BAR_HEIGHT ,
+.BR BAR_TEXT ,
+.B BROWSER
+y
+.BR POLICY_DIR .
+.PP
+La variable de entorno
+.B RECOVERPASS_CONF
+permite indicar otro fichero de configuración, útil para pruebas.
+.SH LIMITACIONES
+Las restricciones de navegación no las impone este script, sino las políticas
+gestionadas del navegador; véase
+.BR recoverpass-update-policy (8).
+Si el navegador no encuentra esas políticas, la sesión abre el portal pero no
+queda confinada.
+.PP
+La sesión no arranca ningún gestor de ventanas a propósito: sin él no hay
+alt\-tab, ni menú de escritorio, ni forma de mover o cerrar ventanas.
+.SH FICHEROS
+.TP
+.I /etc/recoverpass/recoverpass.conf
+Configuración.
+.TP
+.I /usr/share/xsessions/recoverpass.desktop
+Entrada de sesión que la lanza.
+.SH VÉASE TAMBIÉN
+.BR recoverpass-update-policy (8),
+.BR lightdm (1),
+.BR web-greeter (1)

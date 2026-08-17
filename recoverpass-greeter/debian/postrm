@@ -1,0 +1,139 @@
+#!/bin/sh
+# postrm de recoverpass-greeter
+#
+# Deshace exactamente lo que hizo el postinst. Al desinstalar se retira el
+# bloque de PAM, las políticas del navegador y el fichero de AccountsService
+# (el drop-in del greeter ya lo quitó el prerm). Al purgar, además, se borra la
+# cuenta local.
+#
+# Nada de esto se hace en «upgrade»: durante una actualización el postinst del
+# paquete nuevo vuelve a dejarlo todo en su sitio.
+
+set -e
+
+USUARIO=recoverpass
+PAMFILE=/etc/pam.d/lightdm
+PAM_INI='# BEGIN recoverpass-greeter'
+PAM_FIN='# END recoverpass-greeter'
+DROPIN=/etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf
+AS_FILE=/var/lib/AccountsService/users/$USUARIO
+COPIAS=/var/backups/recoverpass-greeter
+ESTADO=/var/lib/recoverpass-greeter
+
+aviso() { echo "recoverpass-greeter: $*" >&2; }
+
+quitar_bloque_pam() {
+    [ -f "$PAMFILE" ] || return 0
+    grep -qF "$PAM_INI" "$PAMFILE" || return 0
+
+    tmp=$(mktemp)
+    sed "/^$PAM_INI\$/,/^$PAM_FIN\$/d" "$PAMFILE" > "$tmp"
+    if [ -s "$tmp" ] && ! grep -qF "$PAM_INI" "$tmp"; then
+        cat "$tmp" > "$PAMFILE"     # se conservan dueño, permisos e inodo
+        echo "recoverpass-greeter: retirado el bloque de $PAMFILE."
+    else
+        aviso "ATENCIÓN: no se ha podido retirar el bloque de $PAMFILE."
+        if [ -f "$COPIAS/pam.d-lightdm.orig" ]; then
+            aviso "  Hay una copia del original en $COPIAS/pam.d-lightdm.orig"
+        fi
+    fi
+    rm -f "$tmp"
+    return 0
+}
+
+quitar_politicas() {
+    # Se borra la ruta que se escribió de verdad, aunque entretanto haya
+    # cambiado POLICY_DIR en la configuración.
+    if [ -f "$ESTADO/policy-path" ]; then
+        while IFS= read -r ruta; do
+            if [ -n "$ruta" ]; then
+                rm -f "$ruta"
+            fi
+        done < "$ESTADO/policy-path"
+    fi
+    rm -f /etc/chromium-browser/policies/managed/recoverpass.json \
+          /etc/opt/chrome/policies/managed/recoverpass.json
+    return 0
+}
+
+quitar_directorios_creados() {
+    # Sólo se retiran los directorios que creó este paquete, y sólo si han
+    # quedado vacíos. Nunca se toca un directorio de otro paquete.
+    [ -f "$ESTADO/dirs-creados" ] || return 0
+    # En orden inverso, para vaciar primero los más profundos. Ningún fallo de
+    # rmdir puede abortar el postrm: un directorio que ya no está, o que otro
+    # paquete ha vuelto a llenar, se deja en paz y punto.
+    sed '1!G;h;$!d' "$ESTADO/dirs-creados" | while IFS= read -r d; do
+        if [ -n "$d" ] && [ -d "$d" ]; then
+            rmdir "$d" 2>/dev/null || true
+        fi
+    done || true
+    return 0
+}
+
+case "$1" in
+    remove|purge|abort-install|abort-upgrade|disappear)
+
+    rm -f "$DROPIN"
+    quitar_bloque_pam
+    quitar_politicas
+
+    # Fichero de AccountsService: si había uno anterior, se restaura.
+    if [ -f "$COPIAS/AccountsService-$USUARIO.orig" ]; then
+        cp -a "$COPIAS/AccountsService-$USUARIO.orig" "$AS_FILE"
+    else
+        rm -f "$AS_FILE"
+    fi
+
+    # Lo genera recoverpass-update-theme dentro del directorio del tema, así que
+    # no lo conoce dpkg y hay que retirarlo a mano.
+    rm -f /usr/share/web-greeter/themes/recoverpass/config.js
+    rm -f /usr/share/web-greeter/themes/recoverpass/fondo.*
+    rmdir /usr/share/web-greeter/themes/recoverpass 2>/dev/null || true
+
+    quitar_directorios_creados
+    ;;
+esac
+
+case "$1" in
+    purge)
+
+    # La cuenta sólo se borra si la creó el paquete.
+    if [ -f "$ESTADO/cuenta-creada-por-el-paquete" ]; then
+        if getent passwd "$USUARIO" >/dev/null 2>&1; then
+            if deluser --quiet --remove-home "$USUARIO" >/dev/null 2>&1; then
+                echo "recoverpass-greeter: borrada la cuenta local «$USUARIO»."
+            else
+                aviso "ATENCIÓN: no se ha podido borrar la cuenta «$USUARIO»."
+                aviso "  ¿Hay una sesión abierta? Bórrela a mano con:"
+                aviso "      sudo deluser --remove-home $USUARIO"
+            fi
+        fi
+        # Sólo se revierte «snap set system homedirs» si lo puso este paquete
+        # (es una configuración global: si ya había otras rutas, no se tocan).
+        if [ -f "$ESTADO/homedirs-anadido-por-el-paquete" ] && command -v snap >/dev/null 2>&1; then
+            if snap unset system homedirs >/dev/null 2>&1; then
+                echo "recoverpass-greeter: revertido «snap set system homedirs»."
+            fi
+        fi
+
+        # El grupo lo crea el postinst por su cuenta, así que puede sobrevivir al
+        # borrado del usuario. Sólo se retira si quedó vacío y sin dueño.
+        if ! getent passwd "$USUARIO" >/dev/null 2>&1 &&
+           getent group "$USUARIO" >/dev/null 2>&1 &&
+           [ -z "$(getent group "$USUARIO" | cut -d: -f4)" ]; then
+            delgroup --quiet "$USUARIO" >/dev/null 2>&1 || true
+        fi
+    elif getent passwd "$USUARIO" >/dev/null 2>&1; then
+        aviso "la cuenta «$USUARIO» ya existía antes de instalar el paquete;"
+        aviso "  se deja como estaba."
+    fi
+
+    rm -rf "$ESTADO" "$COPIAS"
+    rmdir /etc/recoverpass 2>/dev/null || true
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

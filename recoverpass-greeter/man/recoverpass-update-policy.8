@@ -1,0 +1,52 @@
+.TH RECOVERPASS-UPDATE-POLICY 8 "2026-08-15" "recoverpass-greeter 1.0.0" "Manual del administrador"
+.SH NOMBRE
+recoverpass\-update\-policy \- genera las políticas del navegador del kiosco
+.SH SINOPSIS
+.B recoverpass\-update\-policy
+.SH DESCRIPCIÓN
+Genera el fichero de políticas gestionadas del navegador del kiosco a partir de
+.I /etc/recoverpass/recoverpass.conf
+y de la plantilla
+.IR /usr/share/recoverpass/chrome-policy.json.in .
+.PP
+La lista
+.B URLAllowlist
+se construye con
+.B PORTAL_URL
+seguido de los dominios de
+.BR ALLOWED_DOMAINS ;
+todo lo demás queda bloqueado por
+.BR "URLBlocklist: [\(dq*\(dq]" .
+El resultado se escribe en
+.IR POLICY_DIR/recoverpass.json ,
+con permisos 0644 y propietario root.
+.PP
+Lo ejecuta el postinst del paquete. Hay que volver a ejecutarlo a mano cada vez
+que se cambie la configuración; si no, el navegador seguirá con las políticas
+anteriores.
+.SH AVISOS
+.SS Las políticas son globales para el navegador elegido
+Afectan a todos los usuarios del equipo que usen ese navegador, no sólo a la
+cuenta
+.BR recoverpass .
+Por eso la configuración recomendada usa Chromium para el kiosco y deja Google
+Chrome libre para el resto.
+.SS Recursos externos
+.B "URLBlocklist: [\(dq*\(dq]"
+corta también CDN, tipografías, reCAPTCHA y cualquier proveedor de identidad
+externo. Si el portal carga algo de fuera y no está en
+.BR ALLOWED_DOMAINS ,
+la página se verá rota. Conviene abrir el portal en un equipo normal con la
+consola de red del navegador y anotar todos los dominios que pide.
+.SH VARIABLES DE ENTORNO
+.TP
+.B RECOVERPASS_CONF
+Fichero de configuración alternativo.
+.TP
+.B RECOVERPASS_TEMPLATE
+Plantilla alternativa.
+.TP
+.B RECOVERPASS_STATE
+Directorio de estado donde se anota la última ruta escrita.
+.SH VÉASE TAMBIÉN
+.BR recoverpass-session (1)

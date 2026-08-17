@@ -1,0 +1,283 @@
+#!/bin/bash
+# /usr/bin/recoverpass-session
+#
+# Sesión kiosco de recuperación de contraseña (usuario local «recoverpass»).
+# Arranca el navegador sin barra de herramientas sobre un X vacío, sin gestor
+# de ventanas, más una barra inferior con el botón «Salir».
+#
+# La configuración vive en /etc/recoverpass/recoverpass.conf; aquí no hay
+# ninguna URL incrustada.
+#
+# Permisos: root:root 0755
+
+set -u
+
+CONF="${RECOVERPASS_CONF:-/etc/recoverpass/recoverpass.conf}"
+
+# ---- Valores por defecto, por si falta la configuración ------------------
+PORTAL_URL=""
+TIMEOUT=900
+KEYBOARD_LAYOUT="es"
+BAR_HEIGHT=44
+BAR_TEXT=""
+BROWSER="chromium-browser"
+CA_CERT=""
+IGNORE_CERT_ERRORS="true"
+BAR_CSS="/usr/share/recoverpass/barra.css"
+
+# shellcheck source=/dev/null
+[ -r "$CONF" ] && . "$CONF"
+
+# ---- Registro --------------------------------------------------------------
+# Todo lo que pasa aquí acaba en el journal: «journalctl -t recoverpass-session».
+# Sin esto, cuando la sesión no arranca sólo queda un «Exited with return
+# value 1» en el log de LightDM, que no dice nada.
+LOG_NAVEGADOR="${TMPDIR:-/tmp}/recoverpass.navegador.$$"
+
+registrar() {
+    if command -v logger >/dev/null 2>&1; then
+        logger -t recoverpass-session -- "$*" 2>/dev/null || true
+    fi
+    echo "recoverpass-session: $*" >&2
+}
+
+morir() {
+    registrar "ERROR: $*"
+    yad --center --title="Recuperación de contraseña" --button="Salir:0" \
+        --text="$1\n\nAvise al departamento de sistemas." 2>/dev/null
+    exit 1
+}
+
+registrar "iniciando sesión de recuperación (usuario ${USER:-desconocido}, home ${HOME:-?})"
+
+# Si no hay portal configurado no se abre un navegador a ninguna parte: se
+# avisa por pantalla y se sale, que es menos malo que dejar un navegador suelto.
+if [ -z "$PORTAL_URL" ]; then
+    morir "El kiosco no está configurado: falta PORTAL_URL en $CONF."
+fi
+
+export XDG_CURRENT_DESKTOP=recoverpass
+
+setxkbmap "$KEYBOARD_LAYOUT" 2>/dev/null
+xset s off -dpms 2>/dev/null
+xsetroot -solid "#1b1d26" 2>/dev/null
+
+# Resolución de la pantalla. Si xdpyinfo falla, se usa un tamaño razonable.
+SW=1920; SH=1080
+if command -v xdpyinfo >/dev/null 2>&1; then
+    read -r _sw _sh < <(xdpyinfo | awk '/dimensions:/ {split($2,a,"x"); print a[1], a[2]; exit}')
+    [ -n "${_sw:-}" ] && SW="$_sw"
+    [ -n "${_sh:-}" ] && SH="$_sh"
+fi
+CH=$(( SH - BAR_HEIGHT ))
+
+# ---- Localización del navegador -------------------------------------------
+BIN=""
+case "$BROWSER" in
+    google-chrome|google-chrome-stable|chrome)
+        for c in google-chrome-stable google-chrome; do
+            command -v "$c" >/dev/null 2>&1 && { BIN=$(command -v "$c"); break; }
+        done
+        ;;
+    *)
+        # El valor configurado va primero: en 22.04 el binario es
+        # chromium-browser y en 24.04 chromium, pero ambos llevan al mismo snap.
+        for c in "$BROWSER" chromium chromium-browser /snap/bin/chromium; do
+            if command -v "$c" >/dev/null 2>&1; then BIN=$(command -v "$c"); break; fi
+        done
+        ;;
+esac
+
+if [ -z "$BIN" ]; then
+    morir "No se encuentra el navegador «$BROWSER» en este equipo."
+fi
+registrar "navegador: $BIN"
+
+# ---- Perfil desechable: nada persiste entre sesiones ----------------------
+# La cuenta es de un solo uso, así que se limpia todo el estado del navegador
+# al entrar y al salir. Con el snap de Chromium el perfil vive en ~/snap.
+limpiar_perfil() {
+    [ -n "${HOME:-}" ] || return 0
+    [ "$HOME" = "/" ] && return 0
+    rm -rf "$HOME/snap/chromium" "$HOME/.config/chromium" "$HOME/.cache/chromium" \
+           "$HOME/.config/google-chrome" "$HOME/.cache/google-chrome" \
+           "$HOME/.pki" 2>/dev/null
+    return 0
+}
+rm -rf /tmp/recoverpass.* 2>/dev/null
+limpiar_perfil
+
+# ---- Certificado del portal ------------------------------------------------
+# Con un certificado autofirmado, el navegador enseña el interstitial de «La
+# conexión no es privada» y el kiosco deja de servir para nada.
+#
+# La forma correcta es que confíe en la CA del centro: Chromium y Chrome usan
+# la base NSS del usuario, así que se importa ahí. Como el perfil se borra en
+# cada sesión, hay que rehacerlo en cada arranque.
+BANDERAS_TLS=""
+CA_IMPORTADA=false
+
+if [ -n "$CA_CERT" ] && [ -r "$CA_CERT" ]; then
+    if command -v certutil >/dev/null 2>&1; then
+        NSSDB="$HOME/.pki/nssdb"
+        mkdir -p "$NSSDB"
+        if [ ! -f "$NSSDB/cert9.db" ]; then
+            certutil -d "sql:$NSSDB" -N --empty-password >/dev/null 2>&1 || true
+        fi
+        if certutil -d "sql:$NSSDB" -A -t "C,," -n "recoverpass-ca" -i "$CA_CERT" >/dev/null 2>&1; then
+            CA_IMPORTADA=true
+            registrar "CA del portal importada desde $CA_CERT"
+        else
+            registrar "AVISO: no se pudo importar la CA $CA_CERT"
+        fi
+    else
+        registrar "AVISO: falta certutil (libnss3-tools); no se puede importar $CA_CERT"
+    fi
+elif [ -n "$CA_CERT" ]; then
+    registrar "AVISO: CA_CERT apunta a $CA_CERT, que no se puede leer"
+fi
+
+if [ "$CA_IMPORTADA" = true ]; then
+    # Con la CA instalada el certificado se valida de verdad, así que no se
+    # desactiva la comprobación aunque IGNORE_CERT_ERRORS esté puesto: CA_CERT
+    # manda sobre él.
+    case "$IGNORE_CERT_ERRORS" in
+        true|TRUE|yes|1)
+            registrar "IGNORE_CERT_ERRORS se ignora: la CA de CA_CERT tiene prioridad"
+            ;;
+    esac
+else
+    # Sin CA instalada (o si su importación ha fallado): saltarse la validación
+    # para que el kiosco siga siendo utilizable. --test-type evita además el
+    # cartel amarillo de «está usando una marca no compatible».
+    case "$IGNORE_CERT_ERRORS" in
+        true|TRUE|yes|1)
+            BANDERAS_TLS="--ignore-certificate-errors --allow-running-insecure-content --test-type"
+            registrar "AVISO: validación del certificado desactivada (IGNORE_CERT_ERRORS)"
+            ;;
+    esac
+fi
+
+NAVEGADOR=""; BARRA=""; VIGILANTE=""
+cleanup() {
+    [ -n "$NAVEGADOR" ] && kill "$NAVEGADOR" 2>/dev/null
+    [ -n "$BARRA" ]     && kill "$BARRA"     2>/dev/null
+    [ -n "$VIGILANTE" ] && kill "$VIGILANTE" 2>/dev/null
+    limpiar_perfil
+    return 0
+}
+trap cleanup EXIT
+
+# ---- Barra inferior con el botón de salida --------------------------------
+# Va PRIMERO para poder medir cuánto ocupa de verdad y dejarle al navegador el
+# resto exacto de la pantalla.
+#
+# La geometría se ancla al borde inferior con «-0-0» en lugar de calcular la
+# posición: yad nunca respeta la altura pedida (crece según el texto), así que
+# fijando la esquina superior el botón «Salir» acababa por debajo del borde de
+# la pantalla, invisible. Anclada abajo, la ventana crece hacia arriba y el
+# botón siempre se ve.
+#
+# Sin --text la barra baja de ~230 px a ~40: la altura la manda el texto, no la
+# geometría. BAR_TEXT sigue existiendo por si alguien quiere un mensaje, pero
+# viene vacío y entonces ni se pasa la opción.
+OPCIONES_TEXTO=""
+[ -n "$BAR_TEXT" ] && OPCIONES_TEXTO="--text=$BAR_TEXT"
+
+# Aspecto del botón (tamaño, tipografía y margen inferior). yad 0.40 no admite
+# --css, pero GTK3 carga ~/.config/gtk-3.0/gtk.css por su cuenta, así que se
+# copia ahí. El home del kiosco se limpia entre sesiones, de modo que hay que
+# rehacerlo en cada arranque.
+if [ -r "$BAR_CSS" ]; then
+    mkdir -p "$HOME/.config/gtk-3.0"
+    if cp "$BAR_CSS" "$HOME/.config/gtk-3.0/gtk.css" 2>/dev/null; then
+        registrar "estilo de la barra tomado de $BAR_CSS"
+    else
+        registrar "AVISO: no se pudo instalar el estilo de la barra"
+    fi
+fi
+
+yad --geometry="${SW}x${BAR_HEIGHT}-0-0" \
+    --undecorated --sticky --on-top --skip-taskbar --no-escape \
+    --borders=0 \
+    --buttons-layout=center \
+    ${OPCIONES_TEXTO:+"$OPCIONES_TEXTO"} \
+    --button="Salir:0" \
+    >/dev/null 2>&1 &
+BARRA=$!
+
+# Altura real de la barra ya dibujada, para no solaparla con el navegador.
+ALTO_BARRA=$BAR_HEIGHT
+if command -v xwininfo >/dev/null 2>&1; then
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        _geo=$(xwininfo -root -children 2>/dev/null |
+               grep '"YAD"' | head -1 |
+               grep -oE '[0-9]+x[0-9]+\+[0-9-]+\+[0-9-]+' | head -1)
+        if [ -n "${_geo:-}" ]; then
+            _alto=$(printf '%s' "$_geo" | sed -E 's/^[0-9]+x([0-9]+).*/\1/')
+            [ -n "$_alto" ] && ALTO_BARRA=$_alto
+            break
+        fi
+        sleep 0.3
+    done
+fi
+CH=$(( SH - ALTO_BARRA ))
+[ "$CH" -lt 200 ] && CH=$(( SH - BAR_HEIGHT ))   # texto desmedido: no dejar sin sitio
+registrar "barra de $ALTO_BARRA px; ventana del navegador ${SW}x${CH}"
+
+# ---- Navegador -------------------------------------------------------------
+# --app oculta la barra de direcciones y las pestañas; no se usa --kiosk para
+# dejar sitio a la barra inferior. Las restricciones de verdad (URLBlocklist,
+# descargas, DevTools, Ctrl+O) las ponen las políticas gestionadas, que genera
+# recoverpass-update-policy.
+#
+# --password-store=basic evita que el navegador se quede esperando a un
+# llavero que en esta sesión pelada no existe.
+#
+# Los mensajes emergentes (traducir la página, restaurar sesión, novedades,
+# infobars de «Chrome está en modo automatizado»...) se quitan por partida
+# doble: aquí con banderas y en las políticas gestionadas con TranslateEnabled
+# y compañía, que es lo que de verdad respeta el navegador.
+"$BIN" \
+    --app="$PORTAL_URL" \
+    --window-position=0,0 \
+    --window-size="$SW","$CH" \
+    --password-store=basic \
+    --no-first-run \
+    --no-default-browser-check \
+    --disable-session-crashed-bubble \
+    --disable-background-networking \
+    --disable-infobars \
+    --disable-notifications \
+    --disable-translate \
+    --disable-search-engine-choice-screen \
+    --no-service-autorun \
+    --noerrdialogs \
+    --disable-features=TranslateUI,Translate,ChromeWhatsNewUI,PrivacySandboxSettings4,DesktopPWAsAdditionalWindowingControls \
+    $BANDERAS_TLS \
+    >>"$LOG_NAVEGADOR" 2>&1 &
+NAVEGADOR=$!
+
+# ---- Vigilante de inactividad: cierra la sesión pase lo que pase ----------
+( sleep "$TIMEOUT"; kill "$NAVEGADOR" "$BARRA" 2>/dev/null ) &
+VIGILANTE=$!
+
+# Si el navegador se cae nada más abrir, el usuario ve la sesión cerrarse sin
+# explicación. Se detecta y se dice por qué, en pantalla y en el journal.
+sleep 3
+if ! kill -0 "$NAVEGADOR" 2>/dev/null; then
+    registrar "el navegador ha terminado nada más arrancar"
+    if [ -s "$LOG_NAVEGADOR" ]; then
+        registrar "salida del navegador: $(tail -5 "$LOG_NAVEGADOR" | tr '\n' ' ')"
+    fi
+    kill "$BARRA" "$VIGILANTE" 2>/dev/null
+    morir "El navegador no ha podido arrancar."
+fi
+
+# Termina en cuanto el usuario pulse «Salir», cierre el navegador o salte el
+# vigilante. Al salir este script, LightDM cierra la sesión y vuelve al greeter.
+wait -n "$NAVEGADOR" "$BARRA"
+SALIDA=$?
+registrar "fin de la sesión (código $SALIDA)"
+rm -f "$LOG_NAVEGADOR"
+exit 0

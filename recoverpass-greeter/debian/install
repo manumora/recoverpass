@@ -1,0 +1,13 @@
+bin/recoverpass-session                     usr/bin
+bin/recoverpass-update-policy               usr/bin
+bin/recoverpass-instalar-greeter            usr/bin
+bin/recoverpass-update-theme                usr/bin
+etc/recoverpass/recoverpass.conf            etc/recoverpass
+share/recoverpass/chrome-policy.json.in     usr/share/recoverpass
+share/recoverpass/barra.css                 usr/share/recoverpass
+share/recoverpass/background.png            usr/share/recoverpass
+share/recoverpass/background_linex.png      usr/share/recoverpass
+share/recoverpass/web-greeter-3.5.3-ubuntu.deb usr/share/recoverpass
+share/xsessions/recoverpass.desktop         usr/share/xsessions
+share/xgreeters/recoverpass-greeter.desktop usr/share/xgreeters
+theme/*                                     usr/share/web-greeter/themes/recoverpass

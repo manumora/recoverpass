@@ -1,0 +1,3 @@
+# Configuración del tema para web-greeter.
+primary_html: "index.html"
+secondary_html: "secondary.html"

@@ -1,0 +1,57 @@
+#!/bin/sh
+# /usr/bin/recoverpass-instalar-greeter
+#
+# Instala el web-greeter que viene dentro del paquete y vuelve a configurar
+# recoverpass-greeter para que seleccione el greeter del kiosco.
+#
+# Existe porque un postinst no puede instalar otro paquete: mientras se ejecuta,
+# dpkg tiene tomada su base de datos y cualquier «dpkg -i» o «apt install»
+# fallaría con «dpkg frontend lock was locked by another process». Por eso el
+# .deb viaja dentro del paquete pero lo instala el administrador con este
+# comando, en un solo paso.
+#
+# Permisos: root:root 0755
+
+set -eu
+
+GREETER_DEB=/usr/share/recoverpass/web-greeter-3.5.3-ubuntu.deb
+PAQUETE=recoverpass-greeter
+
+aviso() { echo "recoverpass-instalar-greeter: $*" >&2; }
+
+if [ "$(id -u)" -ne 0 ]; then
+    aviso "hay que ejecutarlo como root:"
+    aviso "    sudo recoverpass-instalar-greeter"
+    exit 1
+fi
+
+if command -v web-greeter >/dev/null 2>&1 || [ -x /opt/web-greeter/web-greeter ]; then
+    echo "web-greeter ya está instalado."
+else
+    if [ ! -f "$GREETER_DEB" ]; then
+        aviso "no se encuentra $GREETER_DEB."
+        aviso "  Reinstale el paquete $PAQUETE o instale web-greeter a mano."
+        exit 1
+    fi
+
+    echo "Instalando web-greeter desde $GREETER_DEB..."
+    # Con apt y no con dpkg: así se resuelven sus dependencias (entre ellas
+    # libminizip1t64, que da conflicto si se instala con dpkg a secas).
+    if ! apt-get install -y "$GREETER_DEB"; then
+        aviso "no se ha podido instalar web-greeter. Revise el error de apt."
+        exit 1
+    fi
+fi
+
+# Reconfigurar el kiosco: su postinst es quien escribe el drop-in del greeter,
+# y sólo lo hace si encuentra web-greeter instalado.
+echo "Reconfigurando $PAQUETE..."
+if ! dpkg-reconfigure "$PAQUETE"; then
+    aviso "no se ha podido reconfigurar $PAQUETE. Inténtelo a mano:"
+    aviso "    sudo dpkg-reconfigure $PAQUETE"
+    exit 1
+fi
+
+echo
+echo "Listo. Reinicie la pantalla de acceso para verlo:"
+echo "    sudo systemctl restart lightdm"

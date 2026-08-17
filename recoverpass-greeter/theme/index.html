@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acceso al sistema</title>
+
+    <!-- Cero recursos externos: ni CDN, ni tipografías remotas, ni telemetría.
+         El greeter puede arrancar sin red y una petición colgada bloquearía la
+         pantalla. La tipografía Open Sans se sirve desde fonts/, que son
+         enlaces al paquete fonts-open-sans. -->
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+
+  <body>
+    <main id="pantalla">
+      <div id="columna">
+        <div id="reloj">
+          <span id="hora">--:--</span>
+          <span id="fecha"></span>
+        </div>
+
+        <p id="centro"></p>
+        <p id="equipo"></p>
+
+        <form id="form-acceso" novalidate>
+          <div class="campo" id="campo-lista-usuarios" hidden>
+            <label for="lista-usuarios">Usuario</label>
+            <select id="lista-usuarios"></select>
+          </div>
+
+          <div class="campo" id="campo-usuario">
+            <label for="entrada-usuario">Nombre de usuario</label>
+            <input
+              id="entrada-usuario"
+              name="usuario"
+              type="text"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+            />
+          </div>
+
+          <div class="campo">
+            <label for="entrada-clave">Contraseña</label>
+            <div class="campo-con-boton">
+              <input
+                id="entrada-clave"
+                name="clave"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button
+                id="ver-clave"
+                type="button"
+                class="boton-icono"
+                aria-pressed="false"
+                aria-label="Mostrar la contraseña"
+                title="Mostrar la contraseña"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path
+                    d="M12 5c-5 0-9 4.5-10 7 1 2.5 5 7 10 7s9-4.5 10-7c-1-2.5-5-7-10-7Zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <button id="entrar" type="submit" class="boton-primario">
+            Iniciar sesión
+          </button>
+        </form>
+
+        <p id="mensaje" role="status" aria-live="polite"></p>
+
+        <div id="zona-recuperar">
+          <p id="texto-recuperar">¿Ha olvidado su contraseña?</p>
+          <button id="recuperar" type="button" class="boton-secundario">
+            Recuperar contraseña
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <footer id="barra">
+      <div id="zona-sesion">
+        <label for="lista-sesiones">Sesión</label>
+        <select id="lista-sesiones"></select>
+      </div>
+
+      <div id="zona-energia">
+        <button id="suspender" type="button" class="boton-barra" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z" />
+          </svg>
+          <span>Suspender</span>
+        </button>
+
+        <button id="hibernar" type="button" class="boton-barra" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M12 2v20M4.9 6.5l14.2 11M19.1 6.5 4.9 17.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span>Hibernar</span>
+        </button>
+
+        <button id="reiniciar" type="button" class="boton-barra" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <span>Reiniciar</span>
+        </button>
+
+        <button id="apagar" type="button" class="boton-barra" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M12 3v9M6.5 6.5a8 8 0 1 0 11 0"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span>Apagar</span>
+        </button>
+      </div>
+    </footer>
+
+    <!-- Confirmación de apagado, reinicio y suspensión. Un window.confirm()
+         bloquearía el hilo del greeter, así que el diálogo es propio. -->
+    <div id="confirmacion" role="dialog" aria-modal="true"
+         aria-labelledby="confirmacion-titulo" hidden>
+      <div id="confirmacion-caja">
+        <p id="confirmacion-titulo"></p>
+        <div id="confirmacion-botones">
+          <button id="confirmacion-cancelar" type="button" class="boton-secundario">
+            Cancelar
+          </button>
+          <button id="confirmacion-aceptar" type="button" class="boton-primario">
+            Aceptar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cubierta a pantalla completa para apagado, reinicio y arranque de
+         sesión. Es un botón para que reciba el foco y se pueda cerrar con el
+         teclado si algo se queda a medias. -->
+    <button id="cubierta" type="button" hidden>
+      <span id="cubierta-texto"></span>
+    </button>
+
+    <!-- Apariencia: colores, fondo, botones de energía y zona horaria. Lo
+         genera «recoverpass-update-theme» desde /etc/recoverpass/recoverpass.conf.
+         Si no existe, greeter.js usa sus valores por defecto. -->
+    <script src="config.js"></script>
+
+    <!-- Objeto lightdm simulado: sólo se activa si NO estamos dentro del
+         greeter. Permite abrir este mismo index.html en un Chrome normal. -->
+    <script src="mock/lightdm-mock.js"></script>
+    <script src="js/greeter.js"></script>
+  </body>
+</html>

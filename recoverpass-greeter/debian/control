@@ -1,0 +1,40 @@
+Source: recoverpass-greeter
+Section: x11
+Priority: optional
+Maintainer: Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: recoverpass-greeter
+Architecture: all
+Depends: ${misc:Depends},
+         adduser,
+         fonts-open-sans,
+         lightdm,
+         x11-utils,
+         x11-xserver-utils,
+         libnss3-tools,
+         yad
+Recommends: chromium-browser, web-greeter
+Description: kiosco de recuperación de contraseña para la pantalla de acceso
+ Añade a la pantalla de acceso de LightDM un botón «Recuperar contraseña» que
+ abre una sesión restringida y sin contraseña, con el navegador anclado al
+ portal de autoservicio de la organización. Está pensado para usuarios que no
+ pueden autenticarse y que, por tanto, tampoco pueden abrir un navegador para
+ usar el portal.
+ .
+ El paquete instala la sesión kiosco y su entrada en /usr/share/xsessions, un
+ tema para web-greeter con el botón de recuperación, un lanzador propio del
+ greeter (para no modificar la configuración de web-greeter) y la configuración
+ en /etc/recoverpass/recoverpass.conf, de donde se generan las políticas del
+ navegador.
+ .
+ Los scripts de mantenedor crean la cuenta local restringida, la ocultan de la
+ lista de usuarios y añaden a /etc/pam.d/lightdm un bloque delimitado que
+ permite entrar a esa cuenta sin contraseña. Todo ello se deshace al
+ desinstalar.
+ .
+ web-greeter no está en los repositorios de Ubuntu y Chromium se distribuye como
+ snap, así que ninguno de los dos se puede exigir como dependencia: van en
+ Recommends y el postinst avisa si faltan, sin abortar la instalación.

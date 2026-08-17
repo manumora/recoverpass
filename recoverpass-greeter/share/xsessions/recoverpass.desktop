@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Recuperar contraseña
+Comment=Sesión restringida de recuperación de contraseña
+Exec=/usr/bin/recoverpass-session
+Type=Application
+DesktopNames=recoverpass
+NoDisplay=true

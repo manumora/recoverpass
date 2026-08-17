@@ -1,0 +1,135 @@
+#!/bin/sh
+# /usr/bin/recoverpass-update-theme
+#
+# Vuelca la apariencia definida en /etc/recoverpass/recoverpass.conf al tema del
+# greeter, generando su config.js.
+#
+# Hace falta porque el tema es una página web que sirve web-greeter y se ejecuta
+# como el usuario «lightdm»: no puede leer la configuración del kiosco. Con esto
+# la lee el administrador una vez y el tema recibe un objeto ya resuelto.
+#
+# Hay que ejecutarlo después de cada cambio en la sección de apariencia. Lo
+# llama también el postinst al instalar.
+#
+# Permisos: root:root 0755
+
+set -eu
+
+CONF="${RECOVERPASS_CONF:-/etc/recoverpass/recoverpass.conf}"
+TEMA="${RECOVERPASS_THEME_DIR:-/usr/share/web-greeter/themes/recoverpass}"
+DESTINO="$TEMA/config.js"
+
+aviso() { echo "recoverpass-update-theme: $*" >&2; }
+
+# ---- Valores por defecto ---------------------------------------------------
+BACKGROUND_IMAGE="/usr/share/recoverpass/background.png"
+PRIMARY_COLOR="#1565C0"
+SECONDARY_COLOR="#FFFFFF"
+SHOW_SUSPEND="false"
+SHOW_RESTART="true"
+SHOW_SHUTDOWN="true"
+SHOW_SESSION="true"
+CENTER_NAME="IES Santa Eulalia"
+TIMEZONE="Europe/Madrid"
+
+# shellcheck source=/dev/null
+[ -r "$CONF" ] && . "$CONF"
+
+[ -d "$TEMA" ] || { aviso "no existe el directorio del tema: $TEMA"; exit 1; }
+
+# ---- Validación ------------------------------------------------------------
+# Un color mal escrito dejaría la pantalla de acceso en un estado raro, así que
+# se comprueba aquí y se avisa en vez de propagarlo al greeter.
+color_valido() {
+    printf '%s' "$1" | grep -Eq '^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$'
+}
+
+for par in "PRIMARY_COLOR $PRIMARY_COLOR" "SECONDARY_COLOR $SECONDARY_COLOR"; do
+    nombre=${par%% *}
+    valor=${par#* }
+    if ! color_valido "$valor"; then
+        aviso "$nombre no es un color hexadecimal válido: «$valor»"
+        aviso "  Formato esperado: #RRGGBB (por ejemplo #1565C0)."
+        exit 1
+    fi
+done
+
+if [ -n "$BACKGROUND_IMAGE" ] && [ ! -r "$BACKGROUND_IMAGE" ]; then
+    aviso "ATENCIÓN: no se puede leer la imagen de fondo $BACKGROUND_IMAGE."
+    aviso "  La pantalla de acceso quedará con el fondo liso."
+fi
+
+# El greeter corre como «lightdm» y sólo puede leer lo que le dejen: si la
+# imagen está en un sitio sin permisos, se avisa en lugar de dejar un fondo
+# negro sin explicación.
+if [ -n "$BACKGROUND_IMAGE" ] && [ -r "$BACKGROUND_IMAGE" ]; then
+    if ! su -s /bin/sh -c "test -r '$BACKGROUND_IMAGE'" lightdm 2>/dev/null; then
+        aviso "ATENCIÓN: el usuario «lightdm» no puede leer $BACKGROUND_IMAGE."
+        aviso "  Déjela en /usr/share/recoverpass/ o dele permisos de lectura."
+    fi
+fi
+
+booleano() {
+    case "$1" in
+        true|TRUE|yes|1|si|sí) printf 'true' ;;
+        *) printf 'false' ;;
+    esac
+}
+
+# Escapa una cadena para meterla en un literal JavaScript entre comillas.
+escapar_js() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g" -e 's/"/\\"/g'
+}
+
+TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
+
+cat > "$TMP" <<EOS
+/* GENERADO AUTOMÁTICAMENTE por recoverpass-update-theme a partir de
+ * /etc/recoverpass/recoverpass.conf. No edite este fichero: los cambios se
+ * pierden. Edite la configuración y vuelva a ejecutar:
+ *
+ *     sudo recoverpass-update-theme
+ */
+window.RECOVERPASS_CONFIG = {
+  imagenFondo: "$(escapar_js "$BACKGROUND_IMAGE")",
+  colorPrimario: "$(escapar_js "$PRIMARY_COLOR")",
+  colorSecundario: "$(escapar_js "$SECONDARY_COLOR")",
+  mostrarSuspender: $(booleano "$SHOW_SUSPEND"),
+  mostrarReiniciar: $(booleano "$SHOW_RESTART"),
+  mostrarApagar: $(booleano "$SHOW_SHUTDOWN"),
+  mostrarSesion: $(booleano "$SHOW_SESSION"),
+  nombreCentro: "$(escapar_js "$CENTER_NAME")",
+  zonaHoraria: "$(escapar_js "$TIMEZONE")"
+};
+EOS
+
+# La imagen se copia junto al tema: web-greeter sirve la página desde ahí y una
+# ruta absoluta del sistema de ficheros no siempre es accesible desde la página.
+if [ -n "$BACKGROUND_IMAGE" ] && [ -r "$BACKGROUND_IMAGE" ]; then
+    EXT=$(printf '%s' "$BACKGROUND_IMAGE" | sed -n 's/.*\.\([A-Za-z0-9]\{1,5\}\)$/\1/p')
+    [ -n "$EXT" ] || EXT=png
+    rm -f "$TEMA"/fondo.*
+    cp "$BACKGROUND_IMAGE" "$TEMA/fondo.$EXT"
+    chmod 0644 "$TEMA/fondo.$EXT"
+    # Ruta ABSOLUTA a propósito: la imagen acaba en una variable CSS, y ahí las
+    # rutas relativas se resuelven respecto a la hoja de estilos (css/), no
+    # respecto al HTML. Con «fondo.png» el navegador buscaría css/fondo.png.
+    sed -i "s|imagenFondo: \"[^\"]*\"|imagenFondo: \"$TEMA/fondo.$EXT\"|" "$TMP"
+else
+    sed -i 's|imagenFondo: "[^"]*"|imagenFondo: ""|' "$TMP"
+    rm -f "$TEMA"/fondo.*
+fi
+
+cat "$TMP" > "$DESTINO"
+chmod 0644 "$DESTINO"
+
+echo "recoverpass-update-theme: escrito $DESTINO"
+echo "  fondo: ${BACKGROUND_IMAGE:-(liso)}"
+echo "  primario: $PRIMARY_COLOR   secundario: $SECONDARY_COLOR"
+echo "  suspender: $(booleano "$SHOW_SUSPEND")  reiniciar: $(booleano "$SHOW_RESTART")  apagar: $(booleano "$SHOW_SHUTDOWN")"
+echo "  selector de sesión: $(booleano "$SHOW_SESSION")"
+echo "  centro: ${CENTER_NAME:-(sin nombre)}"
+echo "  zona horaria: $TIMEZONE"
+echo
+echo "Reinicie la pantalla de acceso para verlo:  sudo systemctl restart lightdm"
