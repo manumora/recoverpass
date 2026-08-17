@@ -63,7 +63,7 @@ TMP_CHANGELOG=$(mktemp)
     echo
     echo "  * Nueva versión."
     echo
-    echo " -- Fusion Telecom <manuel@fusiontelecom.co>  $(date -R)"
+    echo " -- Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>  $(date -R)"
     echo
     cat "$CHANGELOG"
 } > "$TMP_CHANGELOG"

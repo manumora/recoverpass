@@ -23,7 +23,7 @@ Si el greeter no arranca, la salida está en el apartado 6 del README.
 
 ## 2. Instalación
 
-- [ ] `sudo apt install ./recoverpass-greeter_0.0.1_all.deb` termina sin errores.
+- [ ] `sudo apt install ./recoverpass-greeter_0.0.2_all.deb` termina sin errores.
 - [ ] El postinst avisa de que `PORTAL_URL` sigue siendo el valor de ejemplo.
 - [ ] `getent passwd recoverpass` existe, con shell `/bin/bash`.
 - [ ] `sudo head -3 /etc/pam.d/lightdm` muestra el bloque `# BEGIN recoverpass-greeter`
@@ -112,7 +112,7 @@ Este apartado es el que decide si el diseño con Chromium es válido.
       `sudo sh -c 'echo "esto no es javascript" >> /usr/share/web-greeter/themes/recoverpass/js/greeter.js'`
       y reinicie LightDM: debe aparecer el mensaje del modo degradado y **el
       acceso con usuario y contraseña debe seguir funcionando**. Restaure después
-      con `sudo apt install --reinstall ./recoverpass-greeter_0.0.1_all.deb`.
+      con `sudo apt install --reinstall ./recoverpass-greeter_0.0.2_all.deb`.
 - [ ] Con el portal apagado, el botón de recuperación entra igual y el navegador
       muestra su página de error: la sesión no se queda colgada.
 

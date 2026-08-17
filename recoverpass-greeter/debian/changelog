@@ -1,6 +1,15 @@
+recoverpass-greeter (0.0.2) noble; urgency=medium
+
+  * postinst: reconecta los content snaps de Chromium que estén instalados
+    pero desconectados (p.ej. gnome-42-2204 en 22.04). Sin esto, Chromium
+    moría al instante con «Content snap command-chain ... not found», aunque
+    el snap de la plataforma GNOME ya estuviera instalado en el equipo.
+
+ -- Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>  Mon, 17 Aug 2026 21:20:00 +0200
+
 recoverpass-greeter (0.0.1) noble; urgency=medium
 
   * Primera versión publicada como recoverpass-greeter (antes recoverpass-kiosk).
 
- -- Fusion Telecom <manuel@fusiontelecom.co>  Mon, 17 Aug 2026 19:52:10 +0200
+ -- Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>  Mon, 17 Aug 2026 19:52:10 +0200
 

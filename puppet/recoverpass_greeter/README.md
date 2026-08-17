@@ -37,14 +37,14 @@ include recoverpass_greeter
 
 | Parámetro | Por defecto | Para qué |
 |---|---|---|
-| `version` | `0.0.1` | Versión del `.deb` que hay en `files/` |
+| `version` | `0.0.2` | Versión del `.deb` que hay en `files/` |
 | `gestionar_config` | `true` | Repartir `recoverpass.conf`. A `false` si prefiere configurarlos a mano |
 | `reiniciar_greeter` | `true` | Reiniciar LightDM al instalar o al cambiar la configuración |
 | `instalar_greeter` | `true` | Instalar el web-greeter incluido en el paquete |
 
 ```puppet
 class { 'recoverpass_greeter':
-  version           => '0.0.1',
+  version           => '0.0.2',
   reiniciar_greeter => false,     # no tocar la pantalla de acceso
 }
 ```

@@ -58,7 +58,7 @@ universe antes de instalar.
 ## 3. Instalación
 
 ```bash
-sudo apt install ./recoverpass-greeter_0.0.1_all.deb
+sudo apt install ./recoverpass-greeter_0.0.2_all.deb
 sudo recoverpass-instalar-greeter    # instala web-greeter y activa el greeter
 sudo snap install chromium           # si no estuviera ya
 ```

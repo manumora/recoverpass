@@ -49,7 +49,7 @@ En la raíz del repositorio hay un paquete ya construido, así que se puede
 instalar directamente:
 
 ```bash
-sudo apt install ./recoverpass-greeter_0.0.1_all.deb
+sudo apt install ./recoverpass-greeter_0.0.2_all.deb
 sudo recoverpass-instalar-greeter    # instala el web-greeter que trae el paquete
 ```
 
@@ -58,7 +58,7 @@ Para construirlo desde las fuentes:
 ```bash
 cd recoverpass-greeter
 dpkg-buildpackage -us -uc -b
-sudo apt install ../recoverpass-greeter_0.0.1_all.deb
+sudo apt install ../recoverpass-greeter_0.0.2_all.deb
 ```
 
 Después hay que poner la URL real del portal web en

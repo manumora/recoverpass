@@ -137,6 +137,32 @@ case "$1" in
         esac
     fi
 
+    # --- 1c. Content snaps de Chromium sin conectar -------------------------
+    # Chromium depende de un snap de contenido con la plataforma GNOME (p.ej.
+    # gnome-42-2204 en 22.04) para arrancar. A veces se instala pero no llega a
+    # conectarse (equipo sin red en ese instante, imagen clonada...), y entonces
+    # el navegador muere al momento con:
+    #   «Content snap command-chain for .../gnome-platform/... not found»
+    #
+    # Se reconecta cualquier enchufe «content» de chromium que esté sin
+    # conectar y cuyo nombre coincida con un snap ya instalado (mismo patrón
+    # que gnome-42-2204: enchufe, snap y ranura se llaman igual). No se instala
+    # ningún snap aquí -eso exigiría red durante la instalación del paquete-,
+    # sólo se reconecta lo que ya está.
+    if command -v snap >/dev/null 2>&1 && snap list chromium >/dev/null 2>&1; then
+        snap connections chromium 2>/dev/null | awk '$1 ~ /^content/ && $3 == "-" {print $2}' |
+        while IFS= read -r enchufe; do
+            nombre=${enchufe#chromium:}
+            if snap list "$nombre" >/dev/null 2>&1; then
+                if snap connect "chromium:$nombre" "$nombre:$nombre" >/dev/null 2>&1; then
+                    echo "recoverpass-greeter: reconectado chromium:$nombre -> $nombre:$nombre."
+                else
+                    aviso "ATENCIÓN: no se ha podido conectar chromium:$nombre con $nombre:$nombre."
+                fi
+            fi
+        done
+    fi
+
     # --- 2. Ocultar la cuenta de la lista del greeter -----------------------
     # El botón del tema llama a start_session("recoverpass") explícitamente,
     # así que ocultarla no impide que arranque.

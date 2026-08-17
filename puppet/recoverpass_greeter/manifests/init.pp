@@ -28,7 +28,7 @@
 #
 # Con parámetros:
 #   class { 'recoverpass_greeter':
-#     version         => '0.0.1',
+#     version         => '0.0.2',
 #     reiniciar_greeter => false,   # no tocar la pantalla de acceso
 #   }
 #
@@ -40,7 +40,7 @@
 
 class recoverpass_greeter (
   # Versión del paquete que hay en files/
-  String  $version           = '0.0.1',
+  String  $version           = '0.0.2',
 
   # Distribuir /etc/recoverpass/recoverpass.conf desde este módulo
   Boolean $gestionar_config  = true,
