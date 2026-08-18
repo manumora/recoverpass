@@ -73,8 +73,18 @@ class recoverpass_greeter (
   # DEBIAN_FRONTEND y --force-confold: recoverpass.conf es un conffile, y sin
   # esto dpkg se quedaría esperando una respuesta que nadie va a dar. Se
   # conserva el fichero del equipo, que es justo el que reparte este módulo.
+  #
+  # El «apt-get install -f -y» va ANTES, con «;» y no con «||»: es un paso
+  # defensivo (reparar un dpkg que hubiera quedado a medias de una instalación
+  # anterior) que no debe decidir el resultado. Con «cmd1 || cmd2», si cmd1
+  # fallaba por lo que fuera, cmd2 casi siempre salía con éxito al no tener
+  # nada que reparar, y ese éxito enmascaraba el fallo real: Puppet daba el
+  # paso por bueno sin haber instalado el paquete, y el resto de la clase
+  # fallaba más adelante con errores que no explicaban la causa (p. ej.
+  # «recoverpass-instalar-greeter: not found»). Con «;», el código de salida
+  # de la instalación real es el que cuenta.
   exec { 'install-recoverpass-greeter':
-    command     => "/usr/bin/apt-get install -y -o Dpkg::Options::=--force-confold ${cache} || /usr/bin/apt-get install -f -y",
+    command     => "/usr/bin/apt-get install -f -y ; /usr/bin/apt-get install -y -o Dpkg::Options::=--force-confold ${cache}",
     unless      => "/usr/bin/dpkg-query -W -f='\${Status} \${Version}\n' recoverpass-greeter 2>/dev/null | /bin/grep -q '^install ok installed ${version}$'",
     environment => ['DEBIAN_FRONTEND=noninteractive'],
     timeout     => 600,
