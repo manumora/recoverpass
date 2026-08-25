@@ -225,9 +225,12 @@ body.con-imagen #barra {
   color: var(--texto-tenue);
 }
 
+/* El foco se marca sólo con el borde del propio campo: el recuadro exterior
+   de :focus-visible sobraría encima de un control que ya se ve enfocado. */
 .campo input:focus-visible,
 .campo select:focus-visible {
   border-color: var(--acento);
+  outline: none;
 }
 
 .campo input:disabled,

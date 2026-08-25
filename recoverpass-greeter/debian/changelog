@@ -1,3 +1,15 @@
+recoverpass-greeter (0.0.4) noble; urgency=medium
+
+  * Nueva versión.
+
+ -- Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>  Tue, 25 Aug 2026 10:05:12 +0200
+
+recoverpass-greeter (0.0.3) noble; urgency=medium
+
+  * Nueva versión.
+
+ -- Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>  Tue, 25 Aug 2026 08:26:06 +0200
+
 recoverpass-greeter (0.0.2) noble; urgency=medium
 
   * postinst: reconecta los content snaps de Chromium que estén instalados
