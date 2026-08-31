@@ -155,6 +155,17 @@ proveedor de identidad externo. Abra el portal en un equipo normal con la consol
 de red del navegador, anote los dominios que pide y añádalos a
 `ALLOWED_DOMAINS`. Si no, la página se verá rota.
 
+### El cambio de contraseña obligatorio
+
+Véase el apartado 9 para el comportamiento completo. Igual que la sección de
+apariencia, estos dos no los lee el tema directamente: hace falta
+`sudo recoverpass-update-theme` para que lleguen a `config.js`.
+
+| Parámetro | Por defecto | Qué hace |
+|---|---|---|
+| `PASSWORD_REQUIREMENTS_URL` | *(vacío)* | URL de EduControl que devuelve `{"min_length": N, ...}` (endpoint público, sin sesión). Vacío desactiva la consulta: se usa siempre `PASSWORD_MIN_LENGTH_DEFAULT` |
+| `PASSWORD_MIN_LENGTH_DEFAULT` | `8` | Longitud mínima que se muestra si no hay URL, no hay red, o la consulta no responde a tiempo (4 s) |
+
 ### El código llega por correo
 
 Si el usuario no puede autenticarse, tampoco abre su webmail. Hay dos salidas y
@@ -202,6 +213,11 @@ Nunca se editan `lightdm.conf`, `web-greeter.yml` ni `web-greeter.desktop`.
 
 ## 6. Funcionalidades
 
+- **Cambio de contraseña obligatorio en la propia pantalla de acceso.** Cuando
+  LDAP lo exige (`pwdReset`+`pwdMustChange`, típicamente tras un
+  restablecimiento de administrador), aparecen ahí mismo los campos
+  «Contraseña nueva»/«Repita», con los requisitos marcándose al escribir. Ver
+  el apartado 9.
 - **Navegador anclado al portal.** `--app`, sin barra de direcciones ni pestañas.
   El resto de la web queda bloqueado por política, no por buena voluntad.
 - **Perfil desechable.** Se borra el estado del navegador al entrar y al salir
@@ -292,7 +308,88 @@ borra esos dos ficheros y el equipo vuelve exactamente al greeter anterior.
 
 ---
 
-## 9. El tema
+## 9. Cambio de contraseña obligatorio
+
+Esto es independiente del botón de recuperación: ocurre en la propia pantalla
+de acceso, con cualquier usuario, sin pasar por el kiosco.
+
+### Cuándo salta
+
+Cada vez que un administrador restablece la contraseña de un usuario **cuya
+política LDAP tiene activado `pwdMustChange`**, el overlay `ppolicy` marca la
+cuenta con `pwdReset`: ese usuario tendrá que ponerse una contraseña nueva en
+su próximo inicio de sesión, la elija el administrador o no. Si la política
+del colectivo no tiene `pwdMustChange` activado, esto no se dispara —no es
+un comportamiento del paquete, es el propio directorio.
+
+Cuando esto pasa, LightDM/PAM piden la contraseña nueva **dentro de la misma
+autenticación**, como preguntas «secretas» de más después de la contraseña de
+acceso, sin ningún aviso previo que las distinga de un fallo normal. Sin
+tratarlo, el usuario ve simplemente que no puede entrar.
+
+### Qué hace el tema
+
+En cuanto PAM pide algo más allá de la contraseña de acceso, el formulario de
+acceso se sustituye por uno con «Contraseña nueva» y «Repita la contraseña
+nueva», con una lista de requisitos que se marca en verde o rojo al escribir,
+y el botón de confirmar deshabilitado hasta cumplirlos todos.
+
+Identificar **qué** pide PAM en cada momento no es tan simple como parece.
+Comprobado en un equipo real que, tras la contraseña de acceso, PAM
+**repregunta por la contraseña actual** («Current Password: », en inglés, sin
+traducir) antes de pedir la nueva —y que esa repregunta puede llegar batida
+junto con «New Password: » y «Retype new Password: », sin esperar respuesta
+entre medias—. El tema no asume un orden fijo: clasifica cada pregunta por su
+propio texto (`manejarPreguntaCambioClave()` en `js/greeter.js`), respondiendo
+solo a la repregunta de la contraseña actual con la que ya se escribió al
+iniciar sesión, para no hacer que el usuario la teclee dos veces.
+
+### Los requisitos que se muestran
+
+- **Longitud mínima**: es la única que impone de verdad el directorio
+  (`pwdMinLength`). El tema intenta obtener el valor vigente en el momento de
+  arrancar, en paralelo con todo lo demás, consultando el endpoint público
+  (sin sesión) `users/password-requirements/` de EduControl —ver
+  `PASSWORD_REQUIREMENTS_URL` más abajo—. Si no hay URL configurada, no hay
+  red, tarda más de 4 s o la respuesta no tiene el formato esperado, se usa
+  en silencio `PASSWORD_MIN_LENGTH_DEFAULT`: esta comprobación es una ayuda,
+  nunca un requisito para poder cambiar la contraseña.
+- **Complejidad** (mayúscula, minúscula, número, símbolo): el directorio
+  **no** las exige en este despliegue —no hay ningún módulo de calidad
+  cargado en el overlay `ppolicy`—, pero se piden en el tema por coherencia
+  con las mismas cuatro reglas que ya exige la web de EduControl. No son
+  configurables.
+
+### Si el directorio rechaza la contraseña nueva
+
+PAM explica el motivo por su cuenta, pero en inglés (son los literales
+propios de `pam_ldap`/`pam_sss`, sin traducir pese al locale español del
+equipo). El tema traduce los que se han visto de verdad —contraseña
+reutilizada, demasiado corta, no cumple la política de calidad, no se pudo
+verificar la actual— y, para cualquier otro que no reconozca, muestra un
+aviso genérico en español y registra el texto original (`console.warn`, sin
+diálogo emergente) para poder ampliar la lista más adelante
+(`TRADUCCIONES_MENSAJE_PAM` en `js/greeter.js`).
+
+Según lo que responda el directorio, o bien PAM vuelve a pedir la contraseña
+nueva (política de calidad, las dos no coinciden: se reintenta sin volver a
+pedir la contraseña actual), o bien —comprobado con un rechazo por historial
+de contraseñas— cierra la autenticación entera de golpe: el tema muestra
+igualmente el motivo, no un mensaje genérico, y hay que volver a iniciar
+sesión.
+
+### Desarrollo y pruebas
+
+El mock de desarrollo (véase el apartado 10) reproduce este flujo completo
+con el parámetro `?debecambiar=1`, incluida la repregunta por la contraseña
+actual, la entrega en bloque de «New»/«Retype», y dos contraseñas de prueba
+que fuerzan cada tipo de rechazo (`Prohibida9$` reintenta, `Repetida9$` cierra
+la autenticación con el motivo). Los detalles están en
+`theme/mock/index.html`.
+
+---
+
+## 10. El tema
 
 Está en `/usr/share/web-greeter/themes/recoverpass/`.
 
@@ -321,7 +418,7 @@ El simulado sólo se activa fuera del greeter: comprueba `window._ready_event` y
 
 ---
 
-## 10. Diagnóstico
+## 11. Diagnóstico
 
 Por orden de utilidad cuando algo no va:
 
@@ -348,7 +445,7 @@ con qué valores y si hay conflicto con otro fichero del sistema.
 
 ---
 
-## 11. Problemas conocidos y su causa
+## 12. Problemas conocidos y su causa
 
 | Síntoma | Causa | Solución |
 |---|---|---|
@@ -402,7 +499,7 @@ no existe.
 
 ---
 
-## 12. Limitaciones conocidas
+## 13. Limitaciones conocidas
 
 **`/etc/pam.d/lightdm` es un conffile de otro paquete.** Es la única edición in
 situ que hace el paquete, con marcadores y copia previa. Consecuencia: cuando
@@ -435,7 +532,7 @@ aplicación gráfica.
 
 ---
 
-## 13. Pruebas
+## 14. Pruebas
 
 ```bash
 ./tests/probar.sh     # requiere Docker
@@ -453,7 +550,7 @@ Chromium, el arranque real de la sesión— está en
 
 ---
 
-## 14. Descargo de responsabilidad
+## 15. Descargo de responsabilidad
 
 Este software se publica **tal cual, sin garantía de ningún tipo**, ni expresa ni
 implícita, incluidas las de comerciabilidad e idoneidad para un propósito
@@ -464,7 +561,7 @@ Conviene ser consciente de lo siguiente antes de instalarlo en un equipo real:
 **Toca la pantalla de acceso.** Modifica `/etc/pam.d/lightdm` y cambia el
 greeter. Un error aquí, o un fallo de JavaScript en el tema, **puede dejar el
 equipo sin pantalla de acceso**. Pruébelo antes en una máquina virtual y deje SSH
-accesible; el procedimiento de recuperación está en el apartado 11.
+accesible; el procedimiento de recuperación está en el apartado 12.
 
 **Hay una cuenta que entra sin contraseña, por diseño.** Es el fundamento de todo
 esto: cualquiera con acceso físico puede abrir la sesión kiosco y llegar al

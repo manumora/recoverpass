@@ -1,0 +1,61 @@
+.TH RECOVERPASS-UPDATE-THEME 8 "2026-08-31" "recoverpass-greeter 1.0.0" "Manual del administrador"
+.SH NOMBRE
+recoverpass\-update\-theme \- genera la configuración del tema del greeter
+.SH SINOPSIS
+.B recoverpass\-update\-theme
+.SH DESCRIPCIÓN
+Vuelca la sección de apariencia y la de requisitos de contraseña de
+.I /etc/recoverpass/recoverpass.conf
+al tema del greeter, generando su
+.IR config.js .
+.PP
+Hace falta porque el tema es una página web que sirve web\-greeter y se
+ejecuta como el usuario
+.BR lightdm :
+no puede leer la configuración del kiosco. Con esto la lee el administrador
+una vez y el tema recibe un objeto ya resuelto.
+.PP
+Genera, entre otras cosas, la imagen de fondo (copiada junto al tema), los
+colores, los botones de la barra inferior visibles, el nombre del centro, la
+zona horaria y los parámetros del formulario de cambio de contraseña
+obligatorio:
+.B PASSWORD_REQUIREMENTS_URL
+y
+.BR PASSWORD_MIN_LENGTH_DEFAULT .
+.PP
+Hay que volver a ejecutarlo a mano cada vez que se cambie cualquiera de esos
+parámetros; si no, la pantalla de acceso conserva el aspecto y los valores
+anteriores. Lo ejecuta el postinst del paquete al instalar.
+.SH AVISOS
+.SS Un color o una longitud mal escritos no llegan al greeter
+Se validan antes de generar
+.IR config.js :
+un color que no sea
+.B #RRGGBB
+o una longitud mínima que no sea un entero positivo hacen que el programa
+avise y termine sin tocar el fichero anterior, para no dejar la pantalla de
+acceso en un estado raro.
+.SS El usuario lightdm necesita poder leer la imagen de fondo
+Si
+.B BACKGROUND_IMAGE
+apunta a un fichero que el usuario
+.B lightdm
+no puede leer, se avisa pero no se aborta: la pantalla de acceso queda con el
+fondo liso del color secundario en vez de sin arrancar.
+.SS El cambio de contraseña obligatorio sigue funcionando sin red
+Si
+.B PASSWORD_REQUIREMENTS_URL
+está vacío, o el equipo no llega a EduControl en el momento del inicio de
+sesión, el tema usa
+.B PASSWORD_MIN_LENGTH_DEFAULT
+en su lugar. Esta comprobación es una ayuda para quien escribe la contraseña,
+nunca un requisito para poder cambiarla.
+.SH VARIABLES DE ENTORNO
+.TP
+.B RECOVERPASS_CONF
+Fichero de configuración alternativo.
+.TP
+.B RECOVERPASS_THEME_DIR
+Directorio del tema alternativo.
+.SH VÉASE TAMBIÉN
+.BR recoverpass-update-policy (8)

@@ -25,9 +25,26 @@ inferior con un botón «Salir» que devuelve a la pantalla de acceso.
 Todo ello va empaquetado en un `.deb` que deja un equipo limpio completamente
 configurado y que se puede desinstalar sin dejar rastro.
 
+## Cambio de contraseña obligatorio
+
+Además del botón de recuperación, el propio tema del greeter sabe responder
+cuando LDAP exige cambiar la contraseña antes de dejar entrar (`pwdReset` +
+`pwdMustChange`): esto ocurre siempre que un administrador restablece la
+contraseña de un usuario cuya política tiene activado el cambio obligatorio,
+que deberá ponerse una contraseña nueva en su próximo inicio de sesión. En
+vez de un error críptico o un "usuario o contraseña incorrectos", aparecen
+en la propia pantalla de acceso los campos «Contraseña nueva» y «Repita la
+contraseña nueva», con los requisitos de longitud y complejidad marcándose
+en verde o rojo según se escribe. Los detalles —por qué no basta con
+responder a las preguntas de PAM en el orden esperado, de dónde sale la
+longitud mínima, cómo se traducen los avisos del directorio— están en el
+apartado 9 de [`recoverpass-greeter/README.md`](recoverpass-greeter/README.md).
+
 ## Capturas
 
 ![Pantalla de acceso con el botón de recuperación](img/main.png)
+
+![Cambio de contraseña obligatorio en la propia pantalla de acceso](img/new-password.png)
 
 ![Pantalla de gestión de contraseña](img/change-password.png)
 

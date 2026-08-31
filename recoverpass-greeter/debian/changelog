@@ -1,8 +1,15 @@
 recoverpass-greeter (0.0.4) noble; urgency=medium
 
-  * Nueva versión.
+  * Cambio de contraseña obligatorio (pwdReset+pwdMustChange) resuelto en la
+    propia pantalla de acceso: formulario de contraseña nueva con requisitos
+    de longitud y complejidad, en vez de un fallo críptico de autenticación.
+  * Las preguntas de PAM se identifican por su texto, no por su posición:
+    la repregunta por la contraseña actual se responde sola.
+  * Los avisos de rechazo de PAM/LDAP se traducen al español.
+  * Nuevos parámetros PASSWORD_REQUIREMENTS_URL y PASSWORD_MIN_LENGTH_DEFAULT
+    en recoverpass.conf.
 
- -- Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>  Tue, 25 Aug 2026 10:05:12 +0200
+ -- Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>  Mon, 31 Aug 2026 18:53:03 +0200
 
 recoverpass-greeter (0.0.3) noble; urgency=medium
 
