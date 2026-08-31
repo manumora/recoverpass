@@ -328,6 +328,22 @@ body.con-imagen #barra {
   color: var(--exito);
 }
 
+/* --- Cambio de contraseña obligatorio ------------------------------------- */
+/* Mismo formulario que el de acceso, en su lugar: LightDM/PAM lo piden dentro
+   de la misma autenticación, no es una pantalla aparte de verdad. */
+#form-cambio-clave {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+#texto-cambio-clave {
+  margin: 0;
+  color: var(--texto-tenue);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
 /* --- Zona de recuperación ------------------------------------------------ */
 /* Separada del acceso principal por una línea y por el espacio: es una acción
    distinta, no una variante de «iniciar sesión». */

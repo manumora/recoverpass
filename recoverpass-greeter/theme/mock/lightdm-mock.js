@@ -19,6 +19,12 @@
  *   ?fallo=sesion          start_session devuelve false
  *   ?silencio=1            LightDM no contesta nunca (prueba del vigilante)
  *   ?usuarios=0            sin lista de usuarios (hide_users_hint)
+ *   ?debecambiar=1         tras la contraseña correcta, PAM exige cambiarla
+ *                          (pwdReset+pwdMustChange): pide «nueva» y «repite»
+ *                          como preguntas secretas adicionales, igual que
+ *                          hace pam_sss de verdad. Si no coinciden entre sí,
+ *                          o si la nueva es igual a la actual, PAM avisa por
+ *                          show_message y vuelve a preguntar (reintento).
  *
  * La contraseña de los usuarios simulados es «demo».
  */
@@ -48,7 +54,8 @@
     prompt: parametro("prompt") === "1",
     fallo: parametro("fallo") || "",
     silencio: parametro("silencio") === "1",
-    conUsuarios: parametro("usuarios") !== "0"
+    conUsuarios: parametro("usuarios") !== "0",
+    debeCambiar: parametro("debecambiar") === "1"
   };
 
   function Senal(nombre) {
@@ -108,6 +115,11 @@
     this.authentication_user = null;
     this.in_authentication = false;
     this.is_authenticated = false;
+
+    /* Estado del escenario ?debecambiar=1, ver Greeter.prototype.respond. */
+    this._pasoCambio = null;
+    this._claveActual = "";
+    this._nuevaClave = "";
 
     this.can_shutdown = true;
     this.can_restart = true;
@@ -201,11 +213,104 @@
       return;
     }
 
-    var correcta = respuesta === CLAVE_BUENA && opciones.fallo !== "acceso";
+    /* Fuera del escenario ?debecambiar=1: comportamiento de siempre. */
+    if (!opciones.debeCambiar) {
+      var correcta = respuesta === CLAVE_BUENA && opciones.fallo !== "acceso";
+      window.setTimeout(function () {
+        self.in_authentication = false;
+        self.is_authenticated = correcta;
+        self.authentication_complete._emitir();
+      }, RETRASO);
+      return;
+    }
+
+    /* Con ?debecambiar=1: tras la contraseña correcta, PAM exige cambiarla
+       (como pam_sss con pwdReset+pwdMustChange). Reproduce lo comprobado en
+       un equipo real: un aviso, una REPREGUNTA por la contraseña actual
+       («Current Password: », en inglés, sin traducir) y sólo entonces las
+       preguntas de la nueva y su confirmación — «New Password: » y
+       «Retype new Password: » entregadas seguidas, sin esperar respuesta
+       entre medias, tal cual se vio en /var/log/lightdm/lightdm.log. */
+    if (this._pasoCambio === null) {
+      var claveOk = respuesta === CLAVE_BUENA && opciones.fallo !== "acceso";
+      if (!claveOk) {
+        window.setTimeout(function () {
+          self.in_authentication = false;
+          self.is_authenticated = false;
+          self.authentication_complete._emitir();
+        }, RETRASO);
+        return;
+      }
+      this._claveActual = respuesta;
+      this._pasoCambio = "actual";
+      window.setTimeout(function () {
+        self.show_message._emitir("Password expired. Change your password now.", 1);
+        window.setTimeout(function () {
+          self.show_prompt._emitir("Current Password: ", 1);
+        }, RETRASO);
+      }, RETRASO);
+      return;
+    }
+
+    if (this._pasoCambio === "actual") {
+      if (respuesta !== this._claveActual) {
+        window.setTimeout(function () {
+          self.in_authentication = false;
+          self.is_authenticated = false;
+          self.authentication_complete._emitir();
+        }, RETRASO);
+        return;
+      }
+      this._pasoCambio = "nueva";
+      window.setTimeout(function () {
+        self.show_prompt._emitir("New Password: ", 1);
+        self.show_prompt._emitir("Retype new Password: ", 1);
+      }, RETRASO);
+      return;
+    }
+
+    if (this._pasoCambio === "nueva") {
+      /* La pregunta de «Retype» ya se emitió junto con esta (ver arriba): no
+         se vuelve a emitir aquí, tal y como pasa de verdad. */
+      this._nuevaClave = respuesta;
+      this._pasoCambio = "repite";
+      return;
+    }
+
+    /* this._pasoCambio === "repite" */
+    var coincide = respuesta === this._nuevaClave;
+    /* «prohibida» simula un rechazo que sólo el servidor puede saber (política
+       de calidad, o repetida en pwdHistory): el greeter no puede adivinarlo
+       de antemano como sí hace con «igual a la actual», así que sirve para
+       probar el aviso + reintento sin tocar el resto del escenario. */
+    var esNueva =
+      this._nuevaClave !== this._claveActual &&
+      this._nuevaClave !== "" &&
+      this._nuevaClave !== "prohibida";
+    this._pasoCambio = null;
+
+    if (coincide && esNueva) {
+      window.setTimeout(function () {
+        self.in_authentication = false;
+        self.is_authenticated = true;
+        self.authentication_complete._emitir();
+      }, RETRASO);
+      return;
+    }
+
+    /* Rechazo: PAM avisa del motivo y vuelve a preguntar, igual que
+       pam_pwquality/pam_unix con reintentos — no tumba la autenticación
+       entera por una contraseña nueva inválida. */
+    var motivo = !esNueva
+      ? "BAD PASSWORD: la contraseña nueva no puede ser igual a la actual."
+      : "Las dos contraseñas no coinciden.";
+    this._pasoCambio = "nueva";
     window.setTimeout(function () {
-      self.in_authentication = false;
-      self.is_authenticated = correcta;
-      self.authentication_complete._emitir();
+      self.show_message._emitir(motivo, 1);
+      window.setTimeout(function () {
+        self.show_prompt._emitir("New Password: ", 1);
+        self.show_prompt._emitir("Retype new Password: ", 1);
+      }, RETRASO);
     }, RETRASO);
   };
 
@@ -213,6 +318,9 @@
     this.authentication_user = null;
     this.in_authentication = false;
     this.is_authenticated = false;
+    this._pasoCambio = null;
+    this._claveActual = "";
+    this._nuevaClave = "";
     this.authentication_complete._emitir();
   };
 

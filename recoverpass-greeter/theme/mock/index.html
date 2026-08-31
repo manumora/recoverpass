@@ -104,6 +104,15 @@
           <a href="../index.html?usuarios=0">Sin lista de usuarios</a> —
           <code>hide_users_hint</code>; sólo campo de texto.
         </li>
+        <li>
+          <a href="../index.html?debecambiar=1">Debe cambiar la contraseña</a>
+          — tras <code>demo</code>, PAM pide una contraseña nueva como
+          pregunta secreta adicional (pwdReset+pwdMustChange); debe aparecer
+          el formulario de «Contraseña nueva»/«Repita». Escriba
+          <code>prohibida</code> como nueva para probar el aviso + reintento
+          (el greeter ya bloquea antes de enviarla si es igual a
+          <code>demo</code> o si las dos no coinciden).
+        </li>
       </ul>
 
       <h2>Qué comprobar</h2>

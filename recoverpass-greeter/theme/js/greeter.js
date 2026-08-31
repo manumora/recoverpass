@@ -30,6 +30,7 @@
   var MODO_INACTIVO = "inactivo";
   var MODO_ACCESO = "acceso";
   var MODO_RECUPERACION = "recuperacion";
+  var MODO_CAMBIO_CLAVE = "cambio_clave";
 
   var USUARIO_RECUPERACION = "recoverpass";
   var SESION_RECUPERACION = "recoverpass";
@@ -48,6 +49,32 @@
   var relojId = null;
   var arrancado = false;
   var senalesConectadas = false;
+
+  /* Cambio de contraseña obligatorio (pwdReset + pwdMustChange en el
+     directorio): PAM lo pide dentro de la MISMA autenticación, como más
+     preguntas «secretas» después de la contraseña de acceso. No hay forma
+     fiable de distinguirlas por el orden: comprobado en un equipo real que
+     tras «Password: » (acceso) llega «Current Password: » — una repregunta
+     por la contraseña ACTUAL, no la nueva — y sólo después «New Password: »
+     y la confirmación. Por eso cada pregunta se clasifica por su propio
+     texto (en inglés, sin traducir, son los literales de pam_ldap/pam_unix),
+     no por la posición. Ver alPrompt() / manejarPreguntaCambioClave().
+       pasoCambio:
+         null      no hay formulario mostrado esperando envío
+         "nueva"   se ha mostrado el formulario; a la espera de que el
+                   usuario escriba y envíe
+         "repite"  ya se respondió con la contraseña nueva; la próxima
+                   pregunta de confirmación se responde sola */
+  var pasoCambio = null;
+  var huboPreguntaClaveAcceso = false;
+  var nuevaClave = "";
+  var repiteClave = "";
+  /* La pregunta de confirmación puede llegar antes de que el usuario haya
+     enviado el formulario (PAM entrega «New Password» y «Retype» seguidas,
+     sin esperar respuesta entre medias). Si pasa, se recuerda aquí para
+     responderla en cuanto se tenga repiteClave, sin esperar una señal nueva
+     que no va a llegar. */
+  var repitePendiente = false;
 
   /* ---------------------------------------------------------------- útiles */
 
@@ -265,7 +292,12 @@
       d.entradaClave,
       d.verClave,
       d.entrar,
-      d.recuperar
+      d.recuperar,
+      d.entradaNuevaClave,
+      d.verNuevaClave,
+      d.entradaRepiteClave,
+      d.confirmarCambioClave,
+      d.cancelarCambioClave
     ];
     for (var i = 0; i < controles.length; i++) {
       if (controles[i]) {
@@ -312,6 +344,18 @@
     if (d.entradaClave) {
       d.entradaClave.value = "";
     }
+    pasoCambio = null;
+    repitePendiente = false;
+    huboPreguntaClaveAcceso = false;
+    nuevaClave = "";
+    repiteClave = "";
+    if (d.entradaNuevaClave) {
+      d.entradaNuevaClave.value = "";
+    }
+    if (d.entradaRepiteClave) {
+      d.entradaRepiteClave.value = "";
+    }
+    ocultarFormularioCambioClave();
     ocultarCubierta();
     bloquear(false);
     mostrarMensaje(texto, clase);
@@ -641,11 +685,38 @@
     if (modo === MODO_ACCESO) {
       if (clase === PROMPT_USUARIO) {
         g.respond(usuario);
-      } else if (clase === PROMPT_SECRETO) {
-        g.respond(clave);
-      } else {
-        g.respond("");
+        return;
       }
+      if (clase !== PROMPT_SECRETO) {
+        g.respond("");
+        return;
+      }
+      if (!huboPreguntaClaveAcceso) {
+        /* Primera pregunta secreta del intento: es la contraseña de acceso. */
+        huboPreguntaClaveAcceso = true;
+        g.respond(clave);
+        return;
+      }
+      /* Cualquier pregunta secreta posterior pertenece al cambio de
+         contraseña obligatorio; cuál exactamente se decide por su texto.
+         Se limpia aquí, una sola vez, el «Comprobando…» del envío del
+         formulario de acceso — no en manejarPreguntaCambioClave(), que
+         también se llama en los reintentos y ahí el mensaje que haya
+         (el motivo del rechazo) debe quedarse. */
+      modo = MODO_CAMBIO_CLAVE;
+      cancelarVigilante();
+      ocultarCubierta();
+      mostrarMensaje("", "");
+      manejarPreguntaCambioClave(texto, g);
+      return;
+    }
+
+    if (modo === MODO_CAMBIO_CLAVE) {
+      if (clase === PROMPT_SECRETO) {
+        manejarPreguntaCambioClave(texto, g);
+        return;
+      }
+      g.respond("");
       return;
     }
 
@@ -654,6 +725,47 @@
        siguiente autenticación. */
     registrar("prompt inesperado estando parados: " + texto);
     cancelarAutenticacionPendiente();
+  }
+
+  /* Clasifica y responde una pregunta secreta del cambio de contraseña
+     obligatorio por su TEXTO, no por su posición en la conversación:
+     comprobado en un equipo real que PAM puede repreguntar por la
+     contraseña ACTUAL («Current Password: ») antes de pedir la nueva, y que
+     la pregunta de confirmación puede llegar antes de que el usuario haya
+     enviado el formulario. Los textos son los literales en inglés de
+     pam_ldap/pam_unix, sin traducir pese al locale español. */
+  function manejarPreguntaCambioClave(texto, g) {
+    var t = String(texto || "");
+
+    if (/current/i.test(t)) {
+      /* Repregunta por la contraseña actual: ya la tenemos de cuando el
+         usuario inició sesión, no hace falta pedírsela otra vez. */
+      g.respond(clave);
+      return;
+    }
+
+    if (/retype|repeat|again|confirm/i.test(t)) {
+      if (pasoCambio === "repite") {
+        /* El usuario ya envió el formulario: se responde sin preguntar. */
+        pasoCambio = null;
+        ocultarCubierta();
+        armarVigilante(ESPERA_AUTENTICACION, "El sistema no responde. Inténtelo de nuevo.");
+        g.respond(repiteClave);
+        return;
+      }
+      /* Ha llegado antes de que el usuario enviase el formulario: se
+         responderá en cuanto se tenga repiteClave, ver
+         confirmarCambioClaveHandler(). */
+      repitePendiente = true;
+      return;
+    }
+
+    /* Cualquier otro texto («New Password: », un reintento tras un rechazo
+       del directorio, o algo no reconocido) pide la contraseña nueva. */
+    cancelarVigilante();
+    pasoCambio = "nueva";
+    repitePendiente = false;
+    mostrarFormularioCambioClave();
   }
 
   function alMensajePam(texto) {
@@ -681,6 +793,11 @@
       if (modo === MODO_RECUPERACION) {
         volverAlInicio(
           "No se ha podido abrir la recuperación de contraseña. Avise al departamento de sistemas.",
+          "error"
+        );
+      } else if (modo === MODO_CAMBIO_CLAVE) {
+        volverAlInicio(
+          "No se ha podido cambiar la contraseña. Vuelva a iniciar sesión e inténtelo de nuevo.",
           "error"
         );
       } else {
@@ -801,6 +918,125 @@
     }
   }
 
+  function mostrarFormularioCambioClave() {
+    if (d.form) {
+      d.form.hidden = true;
+    }
+    if (d.zonaRecuperar) {
+      d.zonaRecuperar.hidden = true;
+    }
+    if (d.formCambioClave) {
+      d.formCambioClave.hidden = false;
+    }
+    if (d.entradaNuevaClave) {
+      d.entradaNuevaClave.value = "";
+    }
+    if (d.entradaRepiteClave) {
+      d.entradaRepiteClave.value = "";
+    }
+    bloquear(false);
+    /* El propio formulario de acceso queda oculto: sólo se desbloquean los
+       controles del cambio de contraseña. */
+    if (d.entradaUsuario) {
+      d.entradaUsuario.disabled = true;
+    }
+    if (d.entradaClave) {
+      d.entradaClave.disabled = true;
+    }
+    if (d.listaUsuarios) {
+      d.listaUsuarios.disabled = true;
+    }
+    if (d.recuperar) {
+      d.recuperar.disabled = true;
+    }
+    try {
+      if (d.entradaNuevaClave) {
+        d.entradaNuevaClave.focus();
+      }
+    } catch (e) {
+      /* sin foco se puede seguir usando el teclado con el tabulador */
+    }
+  }
+
+  function ocultarFormularioCambioClave() {
+    if (d.formCambioClave) {
+      d.formCambioClave.hidden = true;
+    }
+    if (d.form) {
+      d.form.hidden = false;
+    }
+    if (d.zonaRecuperar) {
+      d.zonaRecuperar.hidden = false;
+    }
+  }
+
+  function confirmarCambioClaveHandler(ev) {
+    if (ev && ev.preventDefault) {
+      ev.preventDefault();
+    }
+    if (modo !== MODO_CAMBIO_CLAVE || pasoCambio !== "nueva") {
+      return;
+    }
+
+    var nueva = d.entradaNuevaClave ? d.entradaNuevaClave.value : "";
+    var repite = d.entradaRepiteClave ? d.entradaRepiteClave.value : "";
+
+    if (!nueva) {
+      mostrarMensaje("Escriba la contraseña nueva.", "error");
+      return;
+    }
+    if (nueva !== repite) {
+      mostrarMensaje("Las dos contraseñas no coinciden.", "error");
+      return;
+    }
+    if (nueva === clave) {
+      /* Rechazo seguro: se sabe de antemano que el directorio la va a
+         rechazar por ser igual a la actual, así que se avisa aquí mismo en
+         vez de hacer un viaje entero a PAM para acabar en lo mismo. */
+      mostrarMensaje("La contraseña nueva no puede ser igual a la actual.", "error");
+      return;
+    }
+
+    nuevaClave = nueva;
+    repiteClave = repite;
+    pasoCambio = "repite";
+    ocultarFormularioCambioClave();
+    /* Se deja oculto el propio form-cambio-clave pero seguimos en
+       MODO_CAMBIO_CLAVE: alPrompt() ya sabe que la próxima pregunta secreta es
+       la confirmación y la responde sola. */
+    if (d.formCambioClave) {
+      d.formCambioClave.hidden = true;
+    }
+    mostrarCubierta("Cambiando la contraseña…");
+    mostrarMensaje("", "");
+    armarVigilante(ESPERA_AUTENTICACION, "El sistema no responde. Inténtelo de nuevo.");
+
+    try {
+      ldm().respond(nueva);
+      if (repitePendiente) {
+        /* La pregunta de confirmación ya había llegado antes de enviar el
+           formulario (PAM entrega «New» y «Retype» seguidas, sin esperar
+           respuesta entre medias): se responde también ahora, sin esperar
+           una señal show_prompt que ya no va a volver a llegar. */
+        repitePendiente = false;
+        pasoCambio = null;
+        ocultarCubierta();
+        armarVigilante(ESPERA_AUTENTICACION, "El sistema no responde. Inténtelo de nuevo.");
+        ldm().respond(repiteClave);
+      }
+    } catch (error) {
+      registrar("fallo respondiendo la contraseña nueva", error);
+      volverAlInicio("No se ha podido cambiar la contraseña. Inténtelo de nuevo.", "error");
+    }
+  }
+
+  function cancelarCambioClaveHandler() {
+    if (modo !== MODO_CAMBIO_CLAVE) {
+      return;
+    }
+    volverAlInicio("", "");
+  }
+
   /* --------------------------------------------------------------- interfaz */
 
   function configurarFormulario() {
@@ -815,22 +1051,42 @@
     }
   }
 
-  function configurarVerClave() {
-    if (!d.verClave || !d.entradaClave) {
+  function configurarCambioClave() {
+    if (d.formCambioClave) {
+      d.formCambioClave.addEventListener(
+        "submit",
+        seguro(confirmarCambioClaveHandler, "envío del cambio de contraseña")
+      );
+    }
+    if (d.cancelarCambioClave) {
+      d.cancelarCambioClave.addEventListener(
+        "click",
+        seguro(cancelarCambioClaveHandler, "cancelar cambio de contraseña")
+      );
+    }
+  }
+
+  function configurarVerClaveDe(boton, entrada) {
+    if (!boton || !entrada) {
       return;
     }
-    d.verClave.addEventListener(
+    boton.addEventListener(
       "click",
       seguro(function () {
-        var oculta = d.entradaClave.type === "password";
-        d.entradaClave.type = oculta ? "text" : "password";
-        d.verClave.setAttribute("aria-pressed", oculta ? "true" : "false");
+        var oculta = entrada.type === "password";
+        entrada.type = oculta ? "text" : "password";
+        boton.setAttribute("aria-pressed", oculta ? "true" : "false");
         var etiqueta = oculta ? "Ocultar la contraseña" : "Mostrar la contraseña";
-        d.verClave.setAttribute("aria-label", etiqueta);
-        d.verClave.setAttribute("title", etiqueta);
-        d.entradaClave.focus();
+        boton.setAttribute("aria-label", etiqueta);
+        boton.setAttribute("title", etiqueta);
+        entrada.focus();
       }, "mostrar contraseña")
     );
+  }
+
+  function configurarVerClave() {
+    configurarVerClaveDe(d.verClave, d.entradaClave);
+    configurarVerClaveDe(d.verNuevaClave, d.entradaNuevaClave);
   }
 
   function configurarCubierta() {
@@ -936,7 +1192,14 @@
     d.verClave = nodo("ver-clave");
     d.entrar = nodo("entrar");
     d.mensaje = nodo("mensaje");
+    d.zonaRecuperar = nodo("zona-recuperar");
     d.recuperar = nodo("recuperar");
+    d.formCambioClave = nodo("form-cambio-clave");
+    d.entradaNuevaClave = nodo("entrada-nueva-clave");
+    d.verNuevaClave = nodo("ver-nueva-clave");
+    d.entradaRepiteClave = nodo("entrada-repite-clave");
+    d.confirmarCambioClave = nodo("confirmar-cambio-clave");
+    d.cancelarCambioClave = nodo("cancelar-cambio-clave");
     d.zonaSesion = nodo("zona-sesion");
     d.listaSesiones = nodo("lista-sesiones");
     d.apagar = nodo("apagar");
@@ -978,6 +1241,7 @@
     configurarConfirmacion();
     configurarEnergia();
     configurarFormulario();
+    configurarCambioClave();
     configurarVerClave();
     configurarCubierta();
     ponerEquipo();
@@ -998,6 +1262,7 @@
       );
       conectarSenales();
       configurarFormulario();
+      configurarCambioClave();
       if (d.campoUsuario) {
         d.campoUsuario.hidden = false;
       }

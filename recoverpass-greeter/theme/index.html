@@ -73,6 +73,61 @@
           </button>
         </form>
 
+        <!-- Cambio de contraseña obligatorio: LightDM/PAM lo pide dentro de la
+             misma autenticación (pwdReset + pwdMustChange en el directorio), no
+             es un paso aparte. Oculto hasta que show_prompt lo necesite —
+             ver entrarEnCambioClave() en greeter.js. -->
+        <form id="form-cambio-clave" novalidate hidden>
+          <p id="texto-cambio-clave">
+            Debe establecer una contraseña nueva antes de continuar.
+          </p>
+
+          <div class="campo">
+            <label for="entrada-nueva-clave">Contraseña nueva</label>
+            <div class="campo-con-boton">
+              <input
+                id="entrada-nueva-clave"
+                name="nueva-clave"
+                type="password"
+                autocomplete="new-password"
+                spellcheck="false"
+              />
+              <button
+                id="ver-nueva-clave"
+                type="button"
+                class="boton-icono"
+                aria-pressed="false"
+                aria-label="Mostrar la contraseña"
+                title="Mostrar la contraseña"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path
+                    d="M12 5c-5 0-9 4.5-10 7 1 2.5 5 7 10 7s9-4.5 10-7c-1-2.5-5-7-10-7Zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="campo">
+            <label for="entrada-repite-clave">Repita la contraseña nueva</label>
+            <input
+              id="entrada-repite-clave"
+              name="repite-clave"
+              type="password"
+              autocomplete="new-password"
+              spellcheck="false"
+            />
+          </div>
+
+          <button id="confirmar-cambio-clave" type="submit" class="boton-primario">
+            Cambiar contraseña
+          </button>
+          <button id="cancelar-cambio-clave" type="button" class="boton-secundario">
+            Cancelar
+          </button>
+        </form>
+
         <p id="mensaje" role="status" aria-live="polite"></p>
 
         <div id="zona-recuperar">
