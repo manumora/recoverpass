@@ -344,6 +344,40 @@ body.con-imagen #barra {
   text-align: center;
 }
 
+/* Requisitos de la contraseña nueva: se marcan en gris con una «✗» hasta que
+   se cumplen, y en verde con una «✓» en cuanto se escribe algo que los
+   satisface. Actualizado en JS al teclear, ver actualizarRequisitosClave(). */
+.requisitos-clave {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.requisitos-clave li {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--texto-tenue);
+  font-size: 0.8125rem;
+}
+
+.requisitos-clave li::before {
+  content: "✗";
+  color: var(--error);
+}
+
+.requisitos-clave li.cumplido {
+  color: var(--texto);
+}
+
+.requisitos-clave li.cumplido::before {
+  content: "✓";
+  color: var(--exito);
+}
+
 /* --- Zona de recuperación ------------------------------------------------ */
 /* Separada del acceso principal por una línea y por el espacio: es una acción
    distinta, no una variante de «iniciar sesión». */

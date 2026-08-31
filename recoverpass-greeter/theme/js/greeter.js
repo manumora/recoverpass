@@ -76,6 +76,25 @@
      que no va a llegar. */
   var repitePendiente = false;
 
+  /* Reglas de complejidad de la contraseña nueva: las mismas cuatro que ya
+     exige la web de EduControl (PasswordManagementView.tsx) — ppolicy en
+     este directorio sólo impone longitud mínima (pwdMinLength), no hay
+     ningún módulo de calidad que compruebe mayúsculas/minúsculas/números/
+     símbolos, así que esto es una comprobación del propio tema, coherente
+     con el resto de la aplicación, no algo que exija LDAP. */
+  var REQUISITOS_COMPLEJIDAD = [
+    { id: "mayuscula", prueba: /[A-Z]/ },
+    { id: "minuscula", prueba: /[a-z]/ },
+    { id: "numero", prueba: /[0-9]/ },
+    { id: "simbolo", prueba: /[^A-Za-z0-9]/ }
+  ];
+
+  /* Longitud mínima realmente en uso: empieza en la de config.js
+     (longitudMinimaClave, la de reserva) y se sustituye por la que devuelva
+     EduControl si cargarRequisitosClaveRemotos() consigue contactar a
+     tiempo. Ver esa función. */
+  var longitudMinimaClave = 8;
+
   /* ---------------------------------------------------------------- útiles */
 
   function ldm() {
@@ -90,6 +109,22 @@
     try {
       if (window.console && console.error) {
         console.error("[recoverpass] " + texto, error === undefined ? "" : error);
+      }
+    } catch (e) {
+      /* si ni siquiera hay consola, no hay nada que hacer */
+    }
+  }
+
+  /* Como registrar(), pero con console.warn en vez de console.error: la
+     WebPage de web-greeter (browser/error_prompt.py) abre un diálogo
+     emergente encima de la pantalla de acceso ante CUALQUIER console.error,
+     también los ya controlados como éste. Para un fallo esperado y con
+     reserva (sin red, EduControl caído...) eso asusta sin motivo — se deja
+     el diálogo para errores de verdad inesperados. */
+  function avisar(texto, error) {
+    try {
+      if (window.console && console.warn) {
+        console.warn("[recoverpass] " + texto, error === undefined ? "" : error);
       }
     } catch (e) {
       /* si ni siquiera hay consola, no hay nada que hacer */
@@ -111,7 +146,12 @@
     mostrarApagar: true,
     mostrarSesion: true,
     nombreCentro: "",
-    zonaHoraria: "Europe/Madrid"
+    zonaHoraria: "Europe/Madrid",
+    /* Requisitos de la contraseña nueva en el cambio obligatorio. Con la URL
+       vacía no se intenta ninguna petición: se usa longitudMinimaClave tal
+       cual. Ver cargarRequisitosClaveRemotos(). */
+    urlRequisitosClave: "",
+    longitudMinimaClave: 8
   };
 
   function cfg() {
@@ -918,6 +958,100 @@
     }
   }
 
+  /* Consulta a EduControl la longitud mínima de contraseña vigente
+     (users/password-requirements/, sin sesión) y sustituye
+     longitudMinimaClave si contesta a tiempo. Se llama una vez al arrancar,
+     en paralelo con todo lo demás, para que ya tenga respuesta (o no) mucho
+     antes de que el usuario llegue a ver el formulario. Si la URL no está
+     configurada, no hay red, tarda demasiado, o la respuesta no tiene la
+     forma esperada, se deja tal cual está — el valor de config.js (o su
+     valor de reserva) — sin bloquear ni avisar: esta comprobación es una
+     ayuda, no un requisito para poder cambiar la contraseña. */
+  function cargarRequisitosClaveRemotos() {
+    var url = cfg().urlRequisitosClave;
+    if (!url) {
+      return;
+    }
+
+    var terminado = false;
+    var temporizador = window.setTimeout(function () {
+      terminado = true;
+    }, 4000);
+
+    try {
+      window
+        .fetch(url, { credentials: "omit", cache: "no-store" })
+        .then(function (respuesta) {
+          if (terminado || !respuesta || !respuesta.ok) {
+            return null;
+          }
+          return respuesta.json();
+        })
+        .then(function (datos) {
+          window.clearTimeout(temporizador);
+          if (terminado || !datos) {
+            return;
+          }
+          var longitud = Number(datos.min_length);
+          if (isFinite(longitud) && longitud > 0) {
+            longitudMinimaClave = longitud;
+            actualizarRequisitosClave();
+          }
+        })
+        .catch(function (error) {
+          window.clearTimeout(temporizador);
+          avisar("no se pudieron obtener los requisitos de contraseña de EduControl", error);
+        });
+    } catch (error) {
+      window.clearTimeout(temporizador);
+      avisar("fetch de requisitos de contraseña no disponible", error);
+    }
+  }
+
+  /* Comprueba una contraseña candidata contra la longitud mínima vigente y
+     las reglas de complejidad. Devuelve un objeto {id: cumplido, ...} más
+     "longitud" y "todo" (true sólo si se cumple absolutamente todo). */
+  function evaluarRequisitosClave(valor) {
+    var resultado = { longitud: valor.length >= longitudMinimaClave };
+    var todo = resultado.longitud;
+    for (var i = 0; i < REQUISITOS_COMPLEJIDAD.length; i++) {
+      var r = REQUISITOS_COMPLEJIDAD[i];
+      var cumplido = r.prueba.test(valor);
+      resultado[r.id] = cumplido;
+      todo = todo && cumplido;
+    }
+    resultado.todo = todo;
+    return resultado;
+  }
+
+  /* Repinta la lista de requisitos según lo que haya escrito en «Contraseña
+     nueva» y bloquea «Cambiar contraseña» hasta que se cumplan todos. Se
+     llama al escribir, al mostrar el formulario y cuando
+     cargarRequisitosClaveRemotos() actualiza la longitud mínima. */
+  function actualizarRequisitosClave() {
+    if (!d.listaRequisitos) {
+      return;
+    }
+    var valor = d.entradaNuevaClave ? d.entradaNuevaClave.value : "";
+    var resultado = evaluarRequisitosClave(valor);
+
+    if (d.requisitoLongitud) {
+      d.requisitoLongitud.textContent = "Al menos " + longitudMinimaClave + " caracteres";
+      d.requisitoLongitud.className = resultado.longitud ? "cumplido" : "";
+    }
+    for (var i = 0; i < REQUISITOS_COMPLEJIDAD.length; i++) {
+      var id = REQUISITOS_COMPLEJIDAD[i].id;
+      var nodoRequisito = d["requisito" + id.charAt(0).toUpperCase() + id.slice(1)];
+      if (nodoRequisito) {
+        nodoRequisito.className = resultado[id] ? "cumplido" : "";
+      }
+    }
+
+    if (d.confirmarCambioClave) {
+      d.confirmarCambioClave.disabled = !resultado.todo;
+    }
+  }
+
   function mostrarFormularioCambioClave() {
     if (d.form) {
       d.form.hidden = true;
@@ -935,6 +1069,7 @@
       d.entradaRepiteClave.value = "";
     }
     bloquear(false);
+    actualizarRequisitosClave();
     /* El propio formulario de acceso queda oculto: sólo se desbloquean los
        controles del cambio de contraseña. */
     if (d.entradaUsuario) {
@@ -1062,6 +1197,12 @@
       d.cancelarCambioClave.addEventListener(
         "click",
         seguro(cancelarCambioClaveHandler, "cancelar cambio de contraseña")
+      );
+    }
+    if (d.entradaNuevaClave) {
+      d.entradaNuevaClave.addEventListener(
+        "input",
+        seguro(actualizarRequisitosClave, "requisitos de la contraseña")
       );
     }
   }
@@ -1200,6 +1341,12 @@
     d.entradaRepiteClave = nodo("entrada-repite-clave");
     d.confirmarCambioClave = nodo("confirmar-cambio-clave");
     d.cancelarCambioClave = nodo("cancelar-cambio-clave");
+    d.listaRequisitos = nodo("requisitos-clave");
+    d.requisitoLongitud = nodo("requisito-longitud");
+    d.requisitoMayuscula = nodo("requisito-mayuscula");
+    d.requisitoMinuscula = nodo("requisito-minuscula");
+    d.requisitoNumero = nodo("requisito-numero");
+    d.requisitoSimbolo = nodo("requisito-simbolo");
     d.zonaSesion = nodo("zona-sesion");
     d.listaSesiones = nodo("lista-sesiones");
     d.apagar = nodo("apagar");
@@ -1234,6 +1381,11 @@
     if (!ldm()) {
       throw new Error("no hay objeto lightdm disponible");
     }
+
+    longitudMinimaClave = cfg().longitudMinimaClave;
+    /* En paralelo con todo lo demás: para cuando el usuario llegue al
+       formulario (tras iniciar sesión) ya suele haber contestado. */
+    cargarRequisitosClaveRemotos();
 
     conectarSenales();
     rellenarUsuarios();
