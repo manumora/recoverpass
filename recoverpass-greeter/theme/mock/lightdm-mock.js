@@ -279,14 +279,17 @@
 
     /* this._pasoCambio === "repite" */
     var coincide = respuesta === this._nuevaClave;
-    /* «prohibida» simula un rechazo que sólo el servidor puede saber (política
-       de calidad, o repetida en pwdHistory): el greeter no puede adivinarlo
-       de antemano como sí hace con «igual a la actual», así que sirve para
-       probar el aviso + reintento sin tocar el resto del escenario. */
+    /* «Prohibida9$» simula un rechazo (política de calidad) que sí vuelve a
+       preguntar, como pam_pwquality/pam_unix. «Repetida9$» simula que está
+       en pwdHistory: comprobado en un equipo real que ESE rechazo no vuelve
+       a preguntar — cierra la autenticación entera con un aviso, ver más
+       abajo. El greeter no puede adivinar ninguno de los dos de antemano
+       como sí hace con «igual a la actual». */
     var esNueva =
       this._nuevaClave !== this._claveActual &&
       this._nuevaClave !== "" &&
-      this._nuevaClave !== "prohibida";
+      this._nuevaClave !== "Prohibida9$" &&
+      this._nuevaClave !== "Repetida9$";
     this._pasoCambio = null;
 
     if (coincide && esNueva) {
@@ -294,6 +297,24 @@
         self.in_authentication = false;
         self.is_authenticated = true;
         self.authentication_complete._emitir();
+      }, RETRASO);
+      return;
+    }
+
+    if (coincide && this._nuevaClave === "Repetida9$") {
+      /* Igual que un rechazo por pwdHistory real: un show_message con el
+         motivo y, sin volver a preguntar nada, la autenticación entera
+         termina en fallo. */
+      window.setTimeout(function () {
+        self.show_message._emitir(
+          "Password change failed: Server message: Password is in history of old passwords",
+          1
+        );
+        window.setTimeout(function () {
+          self.in_authentication = false;
+          self.is_authenticated = false;
+          self.authentication_complete._emitir();
+        }, RETRASO);
       }, RETRASO);
       return;
     }

@@ -76,6 +76,16 @@
      que no va a llegar. */
   var repitePendiente = false;
 
+  /* Último aviso que PAM ha mandado por show_message durante el cambio de
+     contraseña (p. ej. «Password change failed: Server message: Password is
+     in history of old passwords»). Comprobado en un equipo real que, si el
+     directorio rechaza la nueva contraseña por reutilizada, PAM no vuelve a
+     preguntar como con una contraseña débil: da ese aviso y cierra la
+     autenticación entera (código 12, «Authentication token is no longer
+     valid»). Si no se guardara aquí, alCompletar() lo taparía con un
+     mensaje genérico sin decir el motivo real. Ver alMensajePam(). */
+  var ultimoMensajePam = "";
+
   /* Reglas de complejidad de la contraseña nueva: las mismas cuatro que ya
      exige la web de EduControl (PasswordManagementView.tsx) — ppolicy en
      este directorio sólo impone longitud mínima (pwdMinLength), no hay
@@ -386,6 +396,7 @@
     }
     pasoCambio = null;
     repitePendiente = false;
+    ultimoMensajePam = "";
     huboPreguntaClaveAcceso = false;
     nuevaClave = "";
     repiteClave = "";
@@ -747,6 +758,7 @@
       cancelarVigilante();
       ocultarCubierta();
       mostrarMensaje("", "");
+      ultimoMensajePam = "";
       manejarPreguntaCambioClave(texto, g);
       return;
     }
@@ -808,9 +820,44 @@
     mostrarFormularioCambioClave();
   }
 
+  /* Los avisos de show_message vienen en inglés: son los literales propios
+     de pam_ldap/pam_sss, sin traducir pese al locale español del equipo
+     (comprobado en un equipo real: «Password change failed: Server
+     message: Password is in history of old passwords», etc.). Se traducen
+     aquí los que se han visto de verdad; cualquier otro se cambia por un
+     aviso genérico en español — nunca se enseña el texto en inglés tal
+     cual — y el original queda registrado por si hay que ampliar la lista. */
+  var TRADUCCIONES_MENSAJE_PAM = [
+    { prueba: /in history of old passwords/i,
+      texto: "Esa contraseña ya se ha usado antes. Elija una distinta." },
+    { prueba: /old password (is )?not accepted|invalid credentials/i,
+      texto: "No se ha podido verificar la contraseña actual. Vuelva a iniciar sesión e inténtelo de nuevo." },
+    { prueba: /too short|minimum.*length/i,
+      texto: "La contraseña nueva es demasiado corta." },
+    { prueba: /quality/i,
+      texto: "La contraseña nueva no cumple la política de calidad del directorio." },
+    { prueba: /password expired/i,
+      texto: "La contraseña ha caducado. Debe establecer una nueva." }
+  ];
+
+  function traducirMensajePam(texto) {
+    var t = String(texto || "");
+    if (!t) {
+      return "";
+    }
+    for (var i = 0; i < TRADUCCIONES_MENSAJE_PAM.length; i++) {
+      if (TRADUCCIONES_MENSAJE_PAM[i].prueba.test(t)) {
+        return TRADUCCIONES_MENSAJE_PAM[i].texto;
+      }
+    }
+    avisar("mensaje de PAM sin traducción: " + t);
+    return "El directorio ha rechazado la contraseña nueva. Pruebe con otra.";
+  }
+
   function alMensajePam(texto) {
     if (texto) {
-      mostrarMensaje(String(texto), "");
+      ultimoMensajePam = traducirMensajePam(texto);
+      mostrarMensaje(ultimoMensajePam, "");
     }
   }
 
@@ -836,8 +883,12 @@
           "error"
         );
       } else if (modo === MODO_CAMBIO_CLAVE) {
+        /* Si PAM ha explicado el motivo (p. ej. contraseña reutilizada), se
+           muestra ese motivo en vez de un genérico que no dice nada — ver
+           declaración de ultimoMensajePam. */
         volverAlInicio(
-          "No se ha podido cambiar la contraseña. Vuelva a iniciar sesión e inténtelo de nuevo.",
+          ultimoMensajePam ||
+            "No se ha podido cambiar la contraseña. Vuelva a iniciar sesión e inténtelo de nuevo.",
           "error"
         );
       } else {

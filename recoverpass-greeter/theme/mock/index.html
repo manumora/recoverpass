@@ -108,10 +108,15 @@
           <a href="../index.html?debecambiar=1">Debe cambiar la contraseña</a>
           — tras <code>demo</code>, PAM pide una contraseña nueva como
           pregunta secreta adicional (pwdReset+pwdMustChange); debe aparecer
-          el formulario de «Contraseña nueva»/«Repita». Escriba
-          <code>prohibida</code> como nueva para probar el aviso + reintento
-          (el greeter ya bloquea antes de enviarla si es igual a
-          <code>demo</code> o si las dos no coinciden).
+          el formulario de «Contraseña nueva»/«Repita», con la lista de
+          requisitos de longitud y complejidad actualizándose al escribir.
+          Escriba <code>Prohibida9$</code> como nueva para probar el aviso +
+          reintento (rechazo de calidad, PAM vuelve a preguntar); escriba
+          <code>Repetida9$</code> para probar un rechazo por historial de
+          contraseñas (PAM no vuelve a preguntar, cierra la autenticación
+          con el motivo — debe verse ESE motivo, no un mensaje genérico). El
+          greeter ya bloquea antes de enviarla si es igual a <code>demo</code>
+          o si las dos no coinciden.
         </li>
       </ul>
 
