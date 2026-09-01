@@ -31,6 +31,141 @@
     </main>
 
     <script>
+      /* Duplicación de pantalla («se ve lo mismo en los dos monitores»).
+         web-greeter crea una ventana a pantalla completa por cada salida que
+         le enseña Qt, y en modo duplicado las dos salidas ocupan EXACTAMENTE
+         el mismo rectángulo: la ventana secundaria acaba encima de la
+         principal y el equipo se queda sin campos de acceso, sólo con este
+         aviso repetido en los dos monitores.
+
+         Cómo se detecta sin preguntar por el resto de ventanas: si esta
+         ventana cubre todo el escritorio (su rectángulo coincide con
+         «overallBoundary», el hueco que suman todas las pantallas), no queda
+         sitio para ninguna otra pantalla, así que es un clon de la principal.
+         En ese caso se carga aquí el tema principal y el acceso vuelve a
+         estar disponible.
+
+         Red de seguridad: si el puente no está, tarda o devuelve algo raro,
+         no se toca nada y la pantalla se queda como estaba (el aviso), que es
+         el comportamiento anterior. Nunca una pantalla muerta. */
+      (function () {
+        "use strict";
+
+        /* Amplio a propósito: al volver de la sesión de recuperación el
+           greeter arranca de nuevo y el puente puede tardar. Mientras se
+           espera, esta pantalla ya muestra el reloj y el aviso. */
+        var ESPERA_MAXIMA = 15000;
+        var INTERVALO = 200;
+        var esperado = 0;
+        var vigilante = null;
+        var decidido = false;
+
+        function numeroValido(valor) {
+          /* maxX/maxY llegan como «infinity» si web-greeter no ha podido
+             calcular el hueco: entonces no se decide nada. */
+          return typeof valor === "number" && isFinite(valor);
+        }
+
+        function esClonDeLaPrincipal(meta) {
+          if (!meta || !meta.position || !meta.size || !meta.overallBoundary) {
+            return false;
+          }
+          var limite = meta.overallBoundary;
+          var valores = [
+            limite.minX, limite.minY, limite.maxX, limite.maxY,
+            meta.position.x, meta.position.y,
+            meta.size.width, meta.size.height
+          ];
+          for (var i = 0; i < valores.length; i++) {
+            if (!numeroValido(valores[i])) {
+              return false;
+            }
+          }
+          if (meta.size.width <= 0 || meta.size.height <= 0) {
+            return false;
+          }
+          return meta.position.x === limite.minX &&
+            meta.position.y === limite.minY &&
+            meta.position.x + meta.size.width === limite.maxX &&
+            meta.position.y + meta.size.height === limite.maxY;
+        }
+
+        /* Los metadatos de la ventana, o null si el puente todavía no está.
+           OJO: leer window_metadata antes de que el canal esté listo LANZA
+           («window_metadata not available, did you wait for the GreeterReady
+           event?»), no devuelve undefined. Por eso aquí un error significa
+           «aún no», nunca «esta pantalla no es un clon»: si se tomara por una
+           decisión —como hacía la 0.0.5— la pantalla se quedaba con el aviso
+           y había que recargar el tema a mano hasta acertar con el momento. */
+        function metadatos() {
+          try {
+            var comm = window.greeter_comm;
+            if (!comm) {
+              return null;
+            }
+            var meta = comm.window_metadata;
+            return meta && meta.size ? meta : null;
+          } catch (error) {
+            return null;
+          }
+        }
+
+        /* true cuando ya hay decisión y no hace falta seguir esperando. */
+        function decidir() {
+          if (decidido) {
+            return true;
+          }
+          var meta = metadatos();
+          if (!meta) {
+            return false;
+          }
+          decidido = true;
+          if (esClonDeLaPrincipal(meta)) {
+            window.location.replace("index.html");
+          }
+          return true;
+        }
+
+        function parar() {
+          if (vigilante !== null) {
+            window.clearInterval(vigilante);
+            vigilante = null;
+          }
+        }
+
+        function comprobar() {
+          if (decidir()) {
+            parar();
+            return;
+          }
+          if (esperado >= ESPERA_MAXIMA) {
+            parar();
+            /* console.warn y no console.error: cualquier console.error abre un
+               diálogo de web-greeter (browser/error_prompt.py) encima de la
+               pantalla de acceso, y aquí lo único que ocurre es que esta
+               pantalla se queda con el reloj y el aviso, que es su cometido
+               normal. */
+            if (window.console && console.warn) {
+              console.warn(
+                "[recoverpass] sin metadatos de ventana tras " + ESPERA_MAXIMA +
+                  " ms: la pantalla secundaria se queda con el aviso"
+              );
+            }
+          }
+        }
+
+        window.addEventListener("GreeterReady", comprobar);
+        comprobar();
+        if (!decidido) {
+          vigilante = window.setInterval(function () {
+            esperado += INTERVALO;
+            comprobar();
+          }, INTERVALO);
+        }
+      })();
+    </script>
+
+    <script>
       /* Sin dependencias y con red de seguridad: si esto fallara, la pantalla
          secundaria se quedaría con la hora a «--:--», nada más. */
       (function () {

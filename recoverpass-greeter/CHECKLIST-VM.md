@@ -54,10 +54,22 @@ Configuración real:
 - [ ] El selector de sesión **no** ofrece «Recuperar contraseña».
 - [ ] Aparecen los botones de apagar y reiniciar.
 - [ ] En un equipo con dos pantallas, la secundaria muestra sólo el reloj.
+- [ ] Con las dos pantallas **en modo duplicado** (misma imagen en las dos,
+      `xrandr --output HDMI-1 --same-as eDP-1`) se ven los campos de acceso,
+      **no** el aviso «Inicie sesión en la pantalla principal».
+- [ ] Y en ese mismo modo duplicado **se inicia sesión de verdad**: no aparece
+      «Usuario o contraseña incorrectos» con la contraseña buena, ni el diálogo
+      «prompt inesperado estando parados».
+- [ ] En modo duplicado, al **volver de la sesión de recuperación** con «Salir»
+      reaparecen los campos de acceso sin tener que recargar el tema, y no sale
+      «window_metadata not available».
 
 ## 4. Acceso normal
 
 - [ ] Un usuario LDAP entra con su contraseña correcta.
+- [ ] Con el usuario escrito y la **contraseña vacía**, «Iniciar sesión» está
+      deshabilitado y pulsar Enter no hace nada: **no** aparece el diálogo
+      «prompt inesperado estando parados: password».
 - [ ] Con la contraseña equivocada aparece «Usuario o contraseña incorrectos.»,
       el formulario se desbloquea y **se puede reintentar sin reiniciar nada**.
 - [ ] Se puede recorrer toda la pantalla sólo con el tabulador y el foco se ve

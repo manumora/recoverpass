@@ -36,6 +36,11 @@
   var SESION_RECUPERACION = "recoverpass";
   var OTRO_USUARIO = "__otro__";
 
+  /* Margen para que llegue el anuncio de mando de otra ventana: su
+     broadcast lo entrega web-greeter con unas décimas de retraso
+     (GreeterComm.broadcast, 60 ms). Ver «una sola ventana al mando». */
+  var ESPERA_ANUNCIO_MANDO = 500;
+
   /* Ningún paso puede quedarse esperando para siempre: si LightDM no
      responde, se vuelve al estado inicial con un mensaje. */
   var ESPERA_AUTENTICACION = 20000;
@@ -49,6 +54,10 @@
   var relojId = null;
   var arrancado = false;
   var senalesConectadas = false;
+  var bloqueado = false;
+  /* Mando de la conversación con LightDM; ver «una sola ventana al mando». */
+  var otroDueno = false;
+  var heReclamado = false;
 
   /* Cambio de contraseña obligatorio (pwdReset + pwdMustChange en el
      directorio): PAM lo pide dentro de la MISMA autenticación, como más
@@ -336,6 +345,7 @@
   }
 
   function bloquear(si) {
+    bloqueado = !!si;
     var controles = [
       d.listaUsuarios,
       d.entradaUsuario,
@@ -354,6 +364,25 @@
         controles[i].disabled = !!si;
       }
     }
+    /* Después del bucle: el botón de acceso no depende sólo del bloqueo, sino
+       también de que haya usuario y contraseña escritos. */
+    actualizarEstadoEntrar();
+  }
+
+  /* «Iniciar sesión» sólo se habilita con los dos campos rellenos.
+     Con la contraseña vacía se abría una autenticación que PAM rechazaba de
+     inmediato y la conversación quedaba a medias: llegaba un show_prompt
+     («password») cuando el tema ya había vuelto al estado inicial y se
+     registraba «prompt inesperado estando parados». Deshabilitar el botón
+     desactiva también el Enter del formulario: el navegador no ejecuta la
+     activación de un botón por defecto deshabilitado, así que no hay envío
+     implícito. */
+  function actualizarEstadoEntrar() {
+    if (!d.entrar) {
+      return;
+    }
+    var hayClave = !!(d.entradaClave && d.entradaClave.value);
+    d.entrar.disabled = bloqueado || !obtenerUsuario() || !hayClave;
   }
 
   function armarVigilante(ms, texto) {
@@ -373,6 +402,13 @@
   }
 
   function cancelarAutenticacionPendiente() {
+    if (otroDueno) {
+      /* La conversación es de otra ventana y cortarla la dejaría sin poder
+         entrar. Cuando el usuario empieza aquí un acceso, iniciarAcceso()
+         reclama el mando antes de llegar a esta llamada, así que sí puede
+         cortar lo que hubiera pendiente. Ver «una sola ventana al mando». */
+      return;
+    }
     try {
       var g = ldm();
       if (g && g.in_authentication) {
@@ -385,11 +421,24 @@
 
   /* Estado inicial: es el único camino de vuelta desde cualquier fallo. */
   function volverAlInicio(texto, clase) {
+    reiniciarEstado(true);
+    mostrarMensaje(texto, clase);
+    enfocarEntrada();
+  }
+
+  /* El estado inicial sin tocar la pantalla. «cortar» dice si además hay que
+     cortar la conversación con LightDM: sí siempre que el flujo fuera
+     nuestro; no cuando el mando ha pasado a otra ventana, porque entonces la
+     conversación es de ella y cancelarla la dejaría sin poder entrar (ver
+     cederElMando). */
+  function reiniciarEstado(cortar) {
     cancelarVigilante();
     /* El modo se marca antes de cancelar: cancel_authentication() emite
        authentication_complete y no debe leerse como un intento fallido. */
     modo = MODO_INACTIVO;
-    cancelarAutenticacionPendiente();
+    if (cortar) {
+      cancelarAutenticacionPendiente();
+    }
     clave = "";
     if (d.entradaClave) {
       d.entradaClave.value = "";
@@ -409,8 +458,81 @@
     ocultarFormularioCambioClave();
     ocultarCubierta();
     bloquear(false);
-    mostrarMensaje(texto, clase);
-    enfocarEntrada();
+  }
+
+  /* --------------------------------------- una sola ventana al mando */
+
+  /* web-greeter registra el MISMO objeto «lightdm» en todas sus ventanas
+     (globales.LDMGreeter, browser/window.py), así que las señales de PAM
+     llegan a TODAS. En una pantalla duplicada hay dos ventanas con este tema
+     —la secundaria carga el tema principal al detectar que es un clon, ver
+     secondary.html— y la que el usuario no está usando recibía el
+     show_prompt del intento de la otra: registraba «prompt inesperado
+     estando parados» (que error_prompt.py convierte en un diálogo encima de
+     la pantalla de acceso) y, peor, cancelaba con cancel_authentication() la
+     autenticación en curso de la ventana buena, de modo que no se podía
+     entrar.
+
+     Por eso la conversación tiene dueña: la ventana donde el usuario teclea
+     o pulsa se declara dueña por greeter_comm.broadcast() y las demás dejan
+     de atender las señales. Sirve el primer gesto porque sólo la ventana de
+     encima recibe los eventos del teclado y del ratón: no hay que saber cuál
+     está encima, lo dice el usuario al usarla. Si toca otra, esa pasa a ser
+     la dueña.
+
+     Con una sola ventana —el caso normal— nunca llega el anuncio de otra:
+     «otroDueno» se queda en false y todo funciona como antes. Si no hubiera
+     greeter_comm (web-greeter antiguo, o el simulado de desarrollo),
+     reclamar no hace nada y ocurre lo mismo. */
+
+  var MARCA_MANDO = "recoverpass:mando";
+
+  /* Identidad de ESTA carga de la página, para reconocer nuestro propio
+     anuncio: broadcast() se lo entrega también al que lo envía.
+     A propósito no se usa greeter_comm.window_metadata.id: leerlo antes de que
+     el canal esté listo LANZA («window_metadata not available…»), y una
+     identidad que a veces falta haría que la ventana se cediera el mando a sí
+     misma y dejara de atender a PAM. Un número al azar está siempre. */
+  var TOKEN_VENTANA = "v" + Date.now() + "-" + Math.random().toString(36).slice(2);
+
+  /* Se llama en cada gesto del usuario: anuncia una sola vez, y vuelve a
+     anunciar si otra ventana nos había quitado el mando. */
+  function reclamarElMando() {
+    if (heReclamado && !otroDueno) {
+      return;
+    }
+    otroDueno = false;
+    heReclamado = true;
+    try {
+      if (window.greeter_comm && window.greeter_comm.broadcast) {
+        window.greeter_comm.broadcast({ marca: MARCA_MANDO, token: TOKEN_VENTANA });
+      }
+    } catch (error) {
+      avisar("no se pudo anunciar el mando de la conversación", error);
+    }
+  }
+
+  function alAnuncioDeMando(datos) {
+    if (!datos || datos.marca !== MARCA_MANDO) {
+      return;
+    }
+    if (datos.token === TOKEN_VENTANA) {
+      return; /* nuestro propio anuncio: broadcast() también nos lo entrega */
+    }
+    otroDueno = true;
+    heReclamado = false;
+    cederElMando();
+  }
+
+  /* El usuario se ha puesto en otra pantalla: se vuelve al estado inicial
+     sin cortar la conversación, que ya no es nuestra. */
+  function cederElMando() {
+    if (modo === MODO_INACTIVO) {
+      return;
+    }
+    avisar("el acceso continúa en otra pantalla; esta ventana vuelve al inicio");
+    reiniciarEstado(false);
+    mostrarMensaje("", "");
   }
 
   function enfocarEntrada() {
@@ -513,6 +635,7 @@
         } else if (d.entradaClave) {
           d.entradaClave.focus();
         }
+        actualizarEstadoEntrar();
       }, "cambio de usuario")
     );
   }
@@ -724,6 +847,10 @@
     if (!g) {
       return;
     }
+    if (otroDueno) {
+      /* La pregunta es del intento de otra pantalla: la contesta ella. */
+      return;
+    }
     var clase = Number(tipo);
 
     if (modo === MODO_RECUPERACION) {
@@ -772,11 +899,28 @@
       return;
     }
 
-    /* Pregunta inesperada estando parados: se cancela la conversación con PAM
-       en vez de contestar a ciegas, para no dejarla a medias bloqueando la
-       siguiente autenticación. */
-    registrar("prompt inesperado estando parados: " + texto);
-    cancelarAutenticacionPendiente();
+    /* Pregunta inesperada estando parados. No se contesta a ciegas, y sobre
+       todo NO se cancela la conversación:
+
+         - En una pantalla duplicada la pregunta puede ser del intento de la
+           otra ventana, porque el objeto lightdm es único para todas (ver
+           «una sola ventana al mando»); cancelarlo dejaba a esa ventana sin
+           poder entrar, que es justo el fallo que se vio en un aula.
+         - Y no hace falta para no dejar PAM a medias: cuando esta ventana
+           inicie un acceso, iniciarAcceso() ya cancela lo que hubiera
+           pendiente antes de llamar a authenticate().
+
+       El aviso se retrasa lo que tarda en llegar un anuncio de mando: si la
+       pregunta era de otra pantalla, no hay nada que registrar. Y se registra
+       con avisar() —console.warn— porque cualquier console.error abre un
+       diálogo de error_prompt.py encima de la pantalla de acceso, y esto ya
+       no es una avería. */
+    window.setTimeout(function () {
+      if (otroDueno) {
+        return;
+      }
+      avisar("prompt inesperado estando parados: " + texto);
+    }, ESPERA_ANUNCIO_MANDO);
   }
 
   /* Clasifica y responde una pregunta secreta del cambio de contraseña
@@ -855,6 +999,9 @@
   }
 
   function alMensajePam(texto) {
+    if (otroDueno) {
+      return;
+    }
     if (texto) {
       ultimoMensajePam = traducirMensajePam(texto);
       mostrarMensaje(ultimoMensajePam, "");
@@ -862,6 +1009,9 @@
   }
 
   function alCompletar() {
+    if (otroDueno) {
+      return;
+    }
     if (modo === MODO_INACTIVO) {
       /* cancel_authentication() también emite esta señal: si no hay ningún
          flujo en curso no hay nada que informar. */
@@ -951,6 +1101,32 @@
     senalesConectadas = true;
   }
 
+  function conectarMando() {
+    try {
+      var comm = window.greeter_comm;
+      if (comm && comm.broadcast_signal && comm.broadcast_signal.connect) {
+        comm.broadcast_signal.connect(function (ventana, datos) {
+          try {
+            alAnuncioDeMando(datos);
+          } catch (error) {
+            avisar("fallo atendiendo el anuncio de mando", error);
+          }
+        });
+      }
+    } catch (error) {
+      avisar("no se pudo escuchar los anuncios de mando", error);
+    }
+
+    /* En captura y sobre el documento: cualquier gesto vale, también en los
+       botones de energía o en el formulario de cambio de contraseña. */
+    try {
+      document.addEventListener("keydown", reclamarElMando, true);
+      document.addEventListener("pointerdown", reclamarElMando, true);
+    } catch (error) {
+      avisar("no se pudieron registrar los gestos del usuario", error);
+    }
+  }
+
   /* ---------------------------------------------------------------- flujos */
 
   function iniciarAcceso(ev) {
@@ -967,9 +1143,18 @@
     if (!usuario) {
       mostrarMensaje("Escriba su nombre de usuario.", "error");
       enfocarEntrada();
+      actualizarEstadoEntrar();
       return;
     }
 
+    if (!clave) {
+      mostrarMensaje("Escriba su contraseña.", "error");
+      enfocarEntrada();
+      actualizarEstadoEntrar();
+      return;
+    }
+
+    reclamarElMando();
     modo = MODO_ACCESO;
     bloquear(true);
     mostrarMensaje("Comprobando…", "");
@@ -989,6 +1174,7 @@
       return;
     }
 
+    reclamarElMando();
     modo = MODO_RECUPERACION;
     bloquear(true);
     mostrarMensaje("Abriendo la recuperación de contraseña…", "");
@@ -1229,12 +1415,31 @@
     if (d.form) {
       d.form.addEventListener("submit", seguro(iniciarAcceso, "envío del formulario"));
     }
+    if (d.entradaUsuario) {
+      d.entradaUsuario.addEventListener(
+        "input",
+        seguro(actualizarEstadoEntrar, "estado del botón de acceso")
+      );
+    }
+    if (d.entradaClave) {
+      d.entradaClave.addEventListener(
+        "input",
+        seguro(actualizarEstadoEntrar, "estado del botón de acceso")
+      );
+    }
+    if (d.listaUsuarios) {
+      d.listaUsuarios.addEventListener(
+        "change",
+        seguro(actualizarEstadoEntrar, "estado del botón de acceso")
+      );
+    }
     if (d.recuperar) {
       d.recuperar.addEventListener(
         "click",
         seguro(iniciarRecuperacion, "botón de recuperación")
       );
     }
+    actualizarEstadoEntrar();
   }
 
   function configurarCambioClave() {
@@ -1439,6 +1644,7 @@
     cargarRequisitosClaveRemotos();
 
     conectarSenales();
+    conectarMando();
     rellenarUsuarios();
     rellenarSesiones();
     configurarConfirmacion();
@@ -1464,6 +1670,7 @@
         "error"
       );
       conectarSenales();
+      conectarMando();
       configurarFormulario();
       configurarCambioClave();
       if (d.campoUsuario) {

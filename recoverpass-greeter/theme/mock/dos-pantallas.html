@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tema recoverpass — banco de dos pantallas</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 1.5rem;
+        background: #14161d;
+        color: #f0f1f5;
+        font-family: "Open Sans", "DejaVu Sans", sans-serif;
+        line-height: 1.5;
+      }
+      h1 {
+        font-size: 1.25rem;
+      }
+      p,
+      li {
+        color: #d5d8e2;
+        max-width: 60rem;
+      }
+      code {
+        padding: 0.1rem 0.35rem;
+        background: #1d2029;
+        border-radius: 4px;
+      }
+      #resultado {
+        margin: 1rem 0;
+        padding: 0.75rem 1rem;
+        background: #1d2029;
+        border-radius: 6px;
+        white-space: pre-line;
+        font-size: 0.9375rem;
+      }
+      .ok {
+        color: #7ddc8f;
+      }
+      .falla {
+        color: #ff8f8f;
+      }
+      .ventanas {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+      iframe {
+        width: 34rem;
+        height: 30rem;
+        border: 1px solid #3a3f4d;
+        border-radius: 6px;
+        background: #000;
+      }
+      nav a {
+        color: #b48ef2;
+        margin-right: 1rem;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Banco de dos pantallas</h1>
+
+    <p>
+      Reproduce lo que hace web-greeter con la pantalla <strong>duplicada</strong>:
+      crea una ventana por cada salida que le enseña Qt, las dos con el mismo
+      rectángulo, y registra en todas el <strong>mismo</strong> objeto
+      <code>lightdm</code> (<code>globales.LDMGreeter</code>), así que las
+      señales de PAM llegan a las dos. Aquí cada
+      <code>&lt;iframe&gt;</code> hace de ventana y esta página hace de
+      web-greeter.
+    </p>
+
+    <p>
+      Sirve para comprobar que sólo la ventana que el usuario está usando habla
+      con LightDM: la otra no debe contestar preguntas, ni mostrar mensajes, ni
+      —sobre todo— cancelar la autenticación en curso. Ver «una sola ventana al
+      mando» en <code>js/greeter.js</code>.
+    </p>
+
+    <nav>
+      <a href="dos-pantallas.html?caso=1">Caso 1: acceso desde la segunda ventana</a>
+      <a href="dos-pantallas.html?caso=2">Caso 2: fallo y cambio de ventana</a>
+      <a href="dos-pantallas.html?caso=3">Caso 3: sin margen para el anuncio</a>
+      <a href="index.html">Volver a los escenarios de una ventana</a>
+    </nav>
+
+    <div id="resultado">Ejecutando…</div>
+
+    <div class="ventanas">
+      <iframe id="v0" title="Ventana principal" src="../index.html"></iframe>
+      <iframe id="v1" title="Ventana clonada" src="../index.html"></iframe>
+    </div>
+
+    <script>
+      /* --------------------------------------------------- el «web-greeter» */
+
+      /* Un solo estado de conversación con PAM para las dos ventanas, con los
+         mismos retrasos que web-greeter: 60 ms en las señales de lightdm
+         (Greeter._emit_signal) y 60 ms en greeter_comm.broadcast. */
+      window.RECOVERPASS_BANCO = (function () {
+        "use strict";
+
+        var RETRASO = 60;
+        /* En el caso 3, PAM contesta ANTES de que llegue el anuncio de mando:
+           es el orden adverso, y el que importa: la latencia de PAM y el
+           retraso del broadcast son independientes, así que la ventana en
+           reposo no puede dar por hecho que ya sabe quién manda. */
+        var RETRASO_PAM = /[?&]caso=3/.test(window.location.search) ? 10 : RETRASO;
+        var CLAVE_BUENA = "demo";
+
+        var marcos = [];
+        var errores = [];
+        var contadores = { authenticate: 0, cancel: 0, respond: 0, start_session: 0 };
+        var estado = { in_authentication: false, is_authenticated: false, usuario: "" };
+
+        function senal() {
+          var subs = [];
+          return {
+            connect: function (cb) {
+              subs.push(cb);
+            },
+            emitir: function (args) {
+              for (var i = 0; i < subs.length; i++) {
+                try {
+                  subs[i].apply(null, args);
+                } catch (error) {
+                  errores.push("EXCEPCIÓN en un manejador: " + error);
+                }
+              }
+            }
+          };
+        }
+
+        function aTodas(nombre, args) {
+          window.setTimeout(function () {
+            for (var i = 0; i < marcos.length; i++) {
+              marcos[i].lightdm[nombre].emitir(args);
+            }
+          }, RETRASO_PAM);
+        }
+
+        function crearLightdm() {
+          var l = {
+            show_prompt: senal(),
+            show_message: senal(),
+            authentication_complete: senal(),
+            users: [
+              { username: "profesor", display_name: "Profesor" },
+              { username: "alumna", display_name: "Alumna" }
+            ],
+            sessions: [{ key: "xfce", name: "Xfce" }],
+            hostname: "aula-01",
+            default_session: "xfce",
+            hide_users_hint: false,
+            select_user_hint: "",
+            can_shutdown: true,
+            can_restart: true,
+            can_suspend: false,
+            can_hibernate: false,
+            authenticate: function (usuario) {
+              contadores.authenticate++;
+              estado.in_authentication = true;
+              estado.is_authenticated = false;
+              estado.usuario = usuario;
+              aTodas("show_prompt", ["Password: ", 1]);
+            },
+            respond: function (texto) {
+              contadores.respond++;
+              if (!estado.in_authentication) {
+                return;
+              }
+              estado.is_authenticated = texto === CLAVE_BUENA;
+              estado.in_authentication = false;
+              aTodas("authentication_complete", []);
+            },
+            cancel_authentication: function () {
+              contadores.cancel++;
+              if (!estado.in_authentication) {
+                return;
+              }
+              estado.in_authentication = false;
+              estado.is_authenticated = false;
+              aTodas("authentication_complete", []);
+            },
+            start_session: function (clave, cb) {
+              contadores.start_session++;
+              if (cb) {
+                cb(true);
+              }
+              return true;
+            },
+            get_current_localized_time: function () {
+              return new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+            },
+            get_current_localized_date: function () {
+              return new Date().toLocaleDateString("es-ES");
+            }
+          };
+          Object.defineProperty(l, "in_authentication", {
+            get: function () {
+              return estado.in_authentication;
+            }
+          });
+          Object.defineProperty(l, "is_authenticated", {
+            get: function () {
+              return estado.is_authenticated;
+            }
+          });
+          return l;
+        }
+
+        /* Las dos ventanas ocupan el mismo rectángulo y ése es todo el
+           escritorio: es exactamente lo que ve el tema en modo duplicado. */
+        function crearComm(indice) {
+          var meta = {
+            id: 100 + indice,
+            is_primary: indice === 0,
+            position: { x: 0, y: 0 },
+            size: { width: 1920, height: 1080 },
+            overallBoundary: { minX: 0, minY: 0, maxX: 1920, maxY: 1080 }
+          };
+          var difusion = senal();
+          return {
+            window_metadata: meta,
+            broadcast_signal: difusion,
+            broadcast: function (datos) {
+              window.setTimeout(function () {
+                for (var i = 0; i < marcos.length; i++) {
+                  marcos[i].greeter_comm.broadcast_signal.emitir([meta, datos]);
+                }
+              }, RETRASO);
+            },
+            requestMetadata: function () {}
+          };
+        }
+
+        return {
+          /* Lo llama mock/lightdm-mock.js desde dentro de cada iframe. */
+          montar: function (ventana) {
+            var indice = marcos.length;
+            var marco = {
+              indice: indice,
+              ventana: ventana,
+              lightdm: crearLightdm(),
+              greeter_comm: crearComm(indice)
+            };
+            marcos.push(marco);
+
+            ventana.lightdm = marco.lightdm;
+            ventana.greeter_comm = marco.greeter_comm;
+
+            /* Los console.error del tema se apuntan aquí: en el greeter de
+               verdad cada uno abre un diálogo encima de la pantalla de acceso
+               (browser/error_prompt.py), así que ninguno es inocuo. */
+            var original = ventana.console.error;
+            ventana.console.error = function () {
+              errores.push("v" + indice + ": " + Array.prototype.slice.call(arguments).join(" "));
+              return original.apply(ventana.console, arguments);
+            };
+
+            ventana._ready_event = new ventana.Event("GreeterReady");
+            ventana.addEventListener("DOMContentLoaded", function () {
+              ventana.setTimeout(function () {
+                ventana.dispatchEvent(ventana._ready_event);
+              }, 2);
+            });
+          },
+          errores: errores,
+          contadores: contadores,
+          estado: estado
+        };
+      })();
+
+      /* ------------------------------------------------------- las pruebas */
+
+      (function () {
+        "use strict";
+
+        var banco = window.RECOVERPASS_BANCO;
+        var lineas = [];
+        var fallos = 0;
+
+        function comprobar(nombre, condicion) {
+          lineas.push((condicion ? "OK   " : "FALLA ") + nombre);
+          if (!condicion) {
+            fallos++;
+          }
+          pintar();
+        }
+
+        function pintar(fin) {
+          var caja = document.getElementById("resultado");
+          caja.className = fin ? (fallos === 0 ? "ok" : "falla") : "";
+          caja.textContent =
+            (fin ? (fallos === 0 ? "TODO OK" : fallos + " FALLOS") : "Ejecutando…") +
+            "\n" +
+            lineas.join("\n") +
+            (fin && fallos ? "\n\nconsole.error registrados:\n" + (banco.errores.join("\n") || "(ninguno)") : "");
+        }
+
+        function doc(indice) {
+          return document.getElementById("v" + indice).contentDocument;
+        }
+
+        function ven(indice) {
+          return document.getElementById("v" + indice).contentWindow;
+        }
+
+        /* Un gesto de verdad: es lo que hace que una ventana reclame el mando
+           de la conversación. Sólo la ventana de encima los recibe. */
+        function gesto(indice, id, tecla) {
+          var w = ven(indice);
+          var e = doc(indice).getElementById(id);
+          e.dispatchEvent(new w.PointerEvent("pointerdown", { bubbles: true }));
+          e.dispatchEvent(new w.KeyboardEvent("keydown", { key: tecla || "a", bubbles: true }));
+          return e;
+        }
+
+        function escribir(indice, id, valor) {
+          var w = ven(indice);
+          var e = doc(indice).getElementById(id);
+          e.value = valor;
+          e.dispatchEvent(new w.Event("input", { bubbles: true }));
+          return e;
+        }
+
+        function mensaje(indice) {
+          return doc(indice).getElementById("mensaje").textContent;
+        }
+
+        function sinPromptInesperado() {
+          return banco.errores.join(" ").indexOf("prompt inesperado") === -1;
+        }
+
+        function caso() {
+          var m = /[?&]caso=([123])/.exec(window.location.search);
+          return m ? m[1] : "1";
+        }
+
+        /* Caso 1: el usuario entra desde la ventana clonada (la que en una
+           pantalla duplicada queda encima). */
+        function caso1() {
+          comprobar(
+            "las dos ventanas han arrancado el tema",
+            !!doc(0).getElementById("entrar") && !!doc(1).getElementById("entrar")
+          );
+
+          gesto(1, "entrada-clave", "d");
+          escribir(1, "entrada-clave", "demo");
+          window.setTimeout(function () {
+            gesto(1, "entrar");
+            doc(1).getElementById("entrar").click();
+            window.setTimeout(function () {
+              comprobar("la ventana en reposo no cancela la autenticación", banco.contadores.cancel === 0);
+              comprobar("la ventana en reposo no muestra mensajes de PAM", mensaje(0) === "");
+              comprobar("nadie registra «prompt inesperado»", sinPromptInesperado());
+              comprobar("la sesión llega a arrancar", banco.contadores.start_session === 1);
+              pintar(true);
+            }, 700);
+          }, 300);
+        }
+
+        /* Caso 2: se equivoca en una ventana y luego se pone en la otra. */
+        function caso2() {
+          gesto(1, "entrada-clave", "m");
+          escribir(1, "entrada-clave", "mala");
+          window.setTimeout(function () {
+            gesto(1, "entrar");
+            doc(1).getElementById("entrar").click();
+            window.setTimeout(function () {
+              comprobar("el rechazo se ve en la ventana que se usa", /incorrect/i.test(mensaje(1)));
+              comprobar("la ventana en reposo sigue en blanco", mensaje(0) === "");
+              comprobar("nadie ha cancelado la conversación", banco.contadores.cancel === 0);
+
+              gesto(0, "entrada-clave", "d");
+              escribir(0, "entrada-clave", "demo");
+              window.setTimeout(function () {
+                gesto(0, "entrar");
+                doc(0).getElementById("entrar").click();
+                window.setTimeout(function () {
+                  comprobar("la otra ventana toma el mando y arranca sesión", banco.contadores.start_session === 1);
+                  comprobar("sin «prompt inesperado» en ninguna", sinPromptInesperado());
+                  pintar(true);
+                }, 700);
+              }, 300);
+            }, 700);
+          }, 300);
+        }
+
+        /* Caso 3: el peor momento posible. El usuario envía el formulario en
+           el mismo instante en que teclea, así que la pregunta de PAM llega a
+           la ventana en reposo ANTES que el anuncio de mando de la otra (los
+           dos con 60 ms de retraso). La ventana en reposo no puede fiarse de
+           haber recibido el anuncio: por eso no cancela nunca la conversación
+           y retrasa el aviso hasta que sabe si era de otra pantalla. */
+        function caso3() {
+          gesto(1, "entrada-clave", "d");
+          escribir(1, "entrada-clave", "demo");
+          gesto(1, "entrar");
+          doc(1).getElementById("entrar").click();
+          window.setTimeout(function () {
+            comprobar("la ventana en reposo no cancela la autenticación", banco.contadores.cancel === 0);
+            comprobar("nadie registra «prompt inesperado»", sinPromptInesperado());
+            comprobar("la sesión llega a arrancar", banco.contadores.start_session === 1);
+            pintar(true);
+          }, 1200);
+        }
+
+        window.addEventListener("load", function () {
+          /* Margen para que los dos temas arranquen (GreeterReady). */
+          window.setTimeout(function () {
+            try {
+              if (caso() === "3") {
+                caso3();
+              } else if (caso() === "2") {
+                caso2();
+              } else {
+                caso1();
+              }
+            } catch (error) {
+              lineas.push("EXCEPCIÓN " + error);
+              fallos++;
+              pintar(true);
+            }
+          }, 500);
+        });
+      })();
+    </script>
+  </body>
+</html>

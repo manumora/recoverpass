@@ -82,6 +82,7 @@ for f in /usr/bin/recoverpass-session \
          /etc/recoverpass/recoverpass.conf \
          /usr/share/recoverpass/chrome-policy.json.in \
          /usr/share/web-greeter/themes/recoverpass/index.html \
+         /usr/share/web-greeter/themes/recoverpass/secondary.html \
          /usr/share/web-greeter/themes/recoverpass/js/greeter.js \
          /usr/share/web-greeter/themes/recoverpass/mock/index.html; do
     [ -e "$f" ] && ok "existe $f" || falla "falta $f"
@@ -155,7 +156,7 @@ if [ -f "$POL" ]; then
 import json
 d=json.load(open('/etc/chromium-browser/policies/managed/recoverpass.json'))
 assert d['URLBlocklist']==['*'], d['URLBlocklist']
-assert d['URLAllowlist']==['sspr.example.local'], d['URLAllowlist']
+assert d['URLAllowlist']==['educontrol.santaeulalia'], d['URLAllowlist']
 assert d['AllowFileSelectionDialogs'] is False
 print('  OK   URLBlocklist/URLAllowlist/AllowFileSelectionDialogs correctos')
 PY

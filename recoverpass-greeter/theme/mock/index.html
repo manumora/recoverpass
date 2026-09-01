@@ -120,6 +120,32 @@
         </li>
       </ul>
 
+      <h2>Pantalla duplicada (dos ventanas)</h2>
+
+      <p>
+        Con la pantalla duplicada, web-greeter abre una ventana por salida y
+        registra en todas el <strong>mismo</strong> objeto <code>lightdm</code>:
+        las señales de PAM llegan a las dos y sólo la ventana que el usuario
+        está usando debe atenderlas. Eso no se puede ver con un solo
+        <code>index.html</code>, así que tiene su propio banco:
+      </p>
+
+      <ul>
+        <li>
+          <a href="dos-pantallas.html?caso=1">Acceso desde la segunda ventana</a>
+          — la ventana en reposo no debe cancelar la autenticación de la otra.
+        </li>
+        <li>
+          <a href="dos-pantallas.html?caso=2">Fallo y cambio de ventana</a> — el
+          mando pasa a la ventana que se usa después.
+        </li>
+        <li>
+          <a href="dos-pantallas.html?caso=3">Sin margen para el anuncio</a> —
+          la pregunta de PAM llega antes de que la ventana en reposo sepa quién
+          manda; aun así no debe cortar nada.
+        </li>
+      </ul>
+
       <h2>Qué comprobar</h2>
       <ul>
         <li>La consola no muestra ningún error.</li>

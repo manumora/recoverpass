@@ -27,12 +27,29 @@
  *                          show_message y vuelve a preguntar (reintento).
  *
  * La contraseña de los usuarios simulados es «demo».
+ *
+ * Para el caso de la pantalla duplicada —dos ventanas del tema compartiendo un
+ * solo objeto lightdm— el simulado lo sirve mock/dos-pantallas.html; ver la
+ * comprobación de window.parent.RECOVERPASS_BANCO más abajo.
  */
 (function () {
   "use strict";
 
   if (window._ready_event !== undefined || typeof qt !== "undefined") {
     return; /* estamos dentro del greeter de verdad */
+  }
+
+  /* Banco de dos pantallas (mock/dos-pantallas.html): reproduce lo que hace
+     web-greeter en una pantalla duplicada —dos ventanas con este tema y UN
+     solo objeto lightdm, cuyas señales llegan a las dos—. Si estamos dentro
+     de ese banco, el objeto lo sirve él y aquí no hay nada que simular. */
+  try {
+    if (window.parent !== window && window.parent.RECOVERPASS_BANCO) {
+      window.parent.RECOVERPASS_BANCO.montar(window);
+      return;
+    }
+  } catch (error) {
+    /* otro origen: no es el banco, se sigue con el simulado normal */
   }
 
   var RETRASO = 60;

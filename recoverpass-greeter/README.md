@@ -116,7 +116,7 @@ cambios sobreviven a las actualizaciones, con dpkg preguntando antes de tocarlo.
 
 | Parámetro | Por defecto | Qué hace |
 |---|---|---|
-| `PORTAL_URL` | `https://sspr.example.local` | Dirección del portal. **Hay que cambiarla**: mientras siga el valor de ejemplo el kiosco no sirve de nada |
+| `PORTAL_URL` | `https://educontrol.santaeulalia/change-password` | Dirección del portal. **Compruébela en cada despliegue**: el valor que viaja en el paquete es el del centro, y con un host que no sea el suyo el kiosco no sirve de nada |
 | `ALLOWED_DOMAINS` | *(vacío)* | Dominios adicionales que la página necesite (CDN, tipografías, reCAPTCHA, proveedor de identidad), separados por espacios. **No hace falta repetir el dominio de `PORTAL_URL`**: su host se permite entero de forma automática |
 
 ### La sesión
@@ -400,6 +400,23 @@ Está en `/usr/share/web-greeter/themes/recoverpass/`.
   simbólicos al paquete `fonts-open-sans`.
 - Contraste AA verificado, foco de teclado visible, navegación completa con
   teclado, textos en español.
+- «Iniciar sesión» está deshabilitado hasta que hay usuario **y** contraseña,
+  así que el Enter tampoco envía el formulario a medias: con la contraseña
+  vacía LightDM abría una autenticación que PAM cortaba en seco y llegaba un
+  `show_prompt` cuando el tema ya había vuelto al estado inicial.
+- **Una sola ventana al mando.** web-greeter registra el mismo objeto
+  `lightdm` en todas sus ventanas, así que las señales de PAM llegan a todas.
+  Con la pantalla duplicada hay dos ventanas con este tema, y la ventana que
+  el usuario teclea se declara dueña de la conversación por
+  `greeter_comm.broadcast()`; las demás dejan de atender las señales. Ninguna
+  ventana cancela nunca una autenticación que no sea suya.
+
+Si la detección de pantalla clonada diera problemas en algún equipo, hay una
+salida de reserva de una línea: poner `secondary_html: "index.html"` en
+`index.yml`. Entonces **todas** las pantallas cargan el tema principal, sin
+detección ni metadatos de por medio; a cambio, en un escritorio extendido el
+segundo monitor muestra otro formulario de acceso en vez del reloj. Es seguro
+porque la conversación con LightDM tiene una sola ventana dueña.
 
 ### Desarrollo sin reiniciar LightDM
 
@@ -415,6 +432,14 @@ de usuarios oculta. La contraseña de los usuarios simulados es `demo`.
 
 El simulado sólo se activa fuera del greeter: comprueba `window._ready_event` y
 `window.qt`, que web-greeter define al crear el documento.
+
+El caso de la **pantalla duplicada** —dos ventanas del tema compartiendo un solo
+objeto `lightdm`— tiene su propio banco en `mock/dos-pantallas.html`: dos
+`<iframe>` hacen de ventanas y la página hace de web-greeter, con los mismos
+retrasos de las señales. Comprueba solo lo que importa: que la ventana en reposo
+no conteste, no muestre mensajes de PAM ni cancele la autenticación de la otra,
+y que la sesión llegue a arrancar. El caso 3 pone el orden adverso a propósito
+(la pregunta de PAM llega antes que el anuncio de mando).
 
 ---
 
@@ -457,6 +482,10 @@ con qué valores y si hay conflicto con otro fichero del sistema.
 | Se ve la barra inferior pero no el botón «Salir» | yad **nunca respeta la altura pedida**: crece con el texto, y fijando la esquina superior el botón caía fuera de la pantalla | Resuelto: la barra se ancla al borde inferior con `-0-0` |
 | «No se admite el indicador de línea de comandos que estás utilizando» | Lo provoca `--ignore-certificate-errors` | Resuelto con la política `CommandLineFlagSecurityWarningsEnabled` |
 | La sesión se abre y aparece «El kiosco no está configurado» | `PORTAL_URL` sigue con el valor de ejemplo | Editar la configuración y regenerar las políticas |
+| Con dos monitores en **modo duplicado** sólo se ve «Inicie sesión en la pantalla principal» | Qt le enseña a web-greeter **una salida por monitor** aunque las dos ocupen el mismo rectángulo: crea dos ventanas superpuestas y la secundaria tapa a la principal | Resuelto: si la ventana secundaria cubre todo el escritorio, `secondary.html` carga el tema principal |
+| Diálogo «prompt inesperado estando parados: password» al pulsar Enter con la contraseña vacía | PAM rechazaba la autenticación al instante y su siguiente `show_prompt` llegaba con el tema ya en reposo | Resuelto: «Iniciar sesión» está deshabilitado mientras falte usuario o contraseña, y así el Enter no envía nada |
+| Diálogo «prompt inesperado estando parados: Password» **con la pantalla duplicada**, y no se puede iniciar sesión | Las dos ventanas comparten el objeto `lightdm`: la que estaba en reposo recibía el `show_prompt` del intento de la otra y lo cancelaba | Resuelto: la conversación tiene una sola ventana dueña y ninguna cancela lo que no es suyo |
+| Diálogo «window_metadata not available, did you wait for the GreeterReady event?» y la pantalla se queda con el aviso hasta recargar el tema | Leer `greeter_comm.window_metadata` antes de que el canal esté listo **lanza**; la detección de pantalla clonada lo tomaba por una decisión y dejaba de esperar | Resuelto: un error al leerlo significa «aún no», se sigue esperando hasta 15 s y el aviso final es un `console.warn` |
 
 ### Recuperación desde un TTY si el greeter no arranca
 

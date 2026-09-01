@@ -1,3 +1,40 @@
+recoverpass-greeter (0.0.5) noble; urgency=medium
+
+  * Pantalla duplicada: ya se puede iniciar sesión con los dos monitores
+    mostrando la misma imagen. Eran tres cosas a la vez:
+    - web-greeter crea una ventana por cada salida que ve Qt, y en modo
+      duplicado las dos ocupan el mismo rectángulo: la secundaria tapaba a la
+      principal y sólo se veía «Inicie sesión en la pantalla principal». Ahora
+      la pantalla secundaria detecta que es un clon de la principal —su
+      ventana cubre todo el escritorio— y carga el tema principal.
+    - web-greeter registra el mismo objeto lightdm en todas sus ventanas, así
+      que las señales de PAM llegan a todas: la ventana en reposo recibía el
+      show_prompt del intento de la otra, avisaba de «prompt inesperado
+      estando parados: Password» y cancelaba la autenticación en curso, de
+      modo que no se podía entrar. Ahora la conversación tiene una sola
+      ventana dueña —la que el usuario teclea, anunciada por
+      greeter_comm.broadcast()— y ninguna ventana cancela una autenticación
+      que no sea suya.
+    - Leer greeter_comm.window_metadata antes de que el canal esté listo lanza
+      («window_metadata not available, did you wait for the GreeterReady
+      event?»); ese error se tomaba por una decisión y la pantalla se quedaba
+      con el aviso, típicamente al volver de la sesión de recuperación. Ahora
+      significa «aún no»: se espera hasta 15 s y el aviso final va por
+      console.warn, sin diálogo.
+  * «Iniciar sesión» está deshabilitado mientras falte el usuario o la
+    contraseña, y con el botón deshabilitado el Enter no envía el formulario.
+    Antes, enviarlo con la contraseña vacía abría una autenticación que PAM
+    cortaba en seco y saltaba el mismo aviso de pregunta inesperada.
+  * El aviso de pregunta inesperada pasa a console.warn: ya no es una avería y
+    cualquier console.error abre un diálogo de web-greeter encima de la
+    pantalla de acceso.
+  * Nuevo banco de pruebas mock/dos-pantallas.html: dos ventanas del tema con
+    un solo lightdm, para el caso de la pantalla duplicada.
+  * La prueba de políticas del navegador esperaba el host de ejemplo antiguo;
+    ahora comprueba el PORTAL_URL que se empaqueta de verdad.
+
+ -- Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>  Tue, 01 Sep 2026 12:30:49 +0200
+
 recoverpass-greeter (0.0.4) noble; urgency=medium
 
   * Cambio de contraseña obligatorio (pwdReset+pwdMustChange) resuelto en la
