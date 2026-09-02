@@ -35,6 +35,9 @@
 }
 
 /* --- Paleta -------------------------------------------------------------- */
+/* Ésta es la paleta de RESERVA. La de verdad la aplica js/apariencia.js sobre
+   <html> a partir de PRIMARY_COLOR y SECONDARY_COLOR, desde el <head> y antes
+   del primer pintado. Sólo se ve esta si ese script no llegara a cargar. */
 /* Derivada de Dracula, rebajada: menos saturación y más contraste. Todas las
    combinaciones de texto llegan a AA (4,5:1) o mejor. */
 :root {
@@ -57,8 +60,8 @@
   --radio: 8px;
   --columna: 23rem;
 
-  /* Las fija greeter.js a partir de PRIMARY_COLOR y SECONDARY_COLOR. Aquí
-     quedan valores de reserva por si config.js no llegara a cargarse. */
+  /* Las fija js/apariencia.js a partir de PRIMARY_COLOR y SECONDARY_COLOR.
+     Aquí quedan valores de reserva por si config.js no llegara a cargarse. */
   --panel: rgba(20, 22, 29, 0.88);
   --velo: rgba(0, 0, 0, 0.35);
   --imagen-fondo: none;
@@ -122,9 +125,10 @@ input {
   padding: 2rem 1.5rem;
 }
 
-/* Fondo con imagen. La clase la pone greeter.js sólo si hay imagen
-   configurada; sin ella todo queda como antes, con el fondo liso. */
-body.con-imagen {
+/* Fondo con imagen. La clase la pone js/apariencia.js en <html> —no en
+   <body>, que aún no existe cuando corre— y sólo si hay imagen configurada;
+   sin ella todo queda igual, con el fondo liso. */
+.con-imagen body {
   background-image: var(--imagen-fondo);
   background-size: cover;
   background-position: center;
@@ -133,7 +137,7 @@ body.con-imagen {
 
 /* Velo sobre la fotografía: sin él, una imagen clara deja ilegible el texto de
    la barra inferior, que va directamente encima. */
-body.con-imagen::before {
+.con-imagen body::before {
   content: "";
   position: fixed;
   inset: 0;
@@ -141,19 +145,19 @@ body.con-imagen::before {
   pointer-events: none;
 }
 
-body.con-imagen > * {
+.con-imagen body > * {
   position: relative;
 }
 
 /* Con imagen de fondo, el formulario se agrupa en un panel para poder leerlo. */
-body.con-imagen #columna {
+.con-imagen #columna {
   background: var(--panel);
   padding: 2rem;
   border-radius: calc(var(--radio) * 2);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
 }
 
-body.con-imagen #barra {
+.con-imagen #barra {
   background: var(--panel);
 }
 

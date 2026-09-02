@@ -84,6 +84,7 @@ for f in /usr/bin/recoverpass-session \
          /usr/share/web-greeter/themes/recoverpass/index.html \
          /usr/share/web-greeter/themes/recoverpass/secondary.html \
          /usr/share/web-greeter/themes/recoverpass/js/greeter.js \
+         /usr/share/web-greeter/themes/recoverpass/js/apariencia.js \
          /usr/share/web-greeter/themes/recoverpass/mock/index.html; do
     [ -e "$f" ] && ok "existe $f" || falla "falta $f"
 done

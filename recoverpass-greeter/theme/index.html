@@ -10,6 +10,14 @@
          pantalla. La tipografía Open Sans se sirve desde fonts/, que son
          enlaces al paquete fonts-open-sans. -->
     <link rel="stylesheet" href="css/style.css" />
+
+    <!-- Apariencia ANTES del primer pintado. config.js lo genera
+         «recoverpass-update-theme» desde /etc/recoverpass/recoverpass.conf, y
+         apariencia.js deriva de ahí la paleta y la aplica sobre <html>. Van en
+         el <head> a propósito: al final del <body> se veía un fogonazo de
+         milisegundos con la paleta de reserva de style.css. -->
+    <script src="config.js"></script>
+    <script src="js/apariencia.js"></script>
   </head>
 
   <body>
@@ -225,11 +233,6 @@
     <button id="cubierta" type="button" hidden>
       <span id="cubierta-texto"></span>
     </button>
-
-    <!-- Apariencia: colores, fondo, botones de energía y zona horaria. Lo
-         genera «recoverpass-update-theme» desde /etc/recoverpass/recoverpass.conf.
-         Si no existe, greeter.js usa sus valores por defecto. -->
-    <script src="config.js"></script>
 
     <!-- Objeto lightdm simulado: sólo se activa si NO estamos dentro del
          greeter. Permite abrir este mismo index.html en un Chrome normal. -->

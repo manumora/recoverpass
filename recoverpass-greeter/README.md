@@ -393,7 +393,16 @@ la autenticación con el motivo). Los detalles están en
 
 Está en `/usr/share/web-greeter/themes/recoverpass/`.
 
-- JavaScript clásico en un solo fichero, sin módulos ES y sin compilar.
+- JavaScript clásico, sin módulos ES y sin compilar: todo en `js/greeter.js`,
+  con una única excepción, `js/apariencia.js`.
+- **La paleta se aplica antes del primer pintado.** `index.html` y
+  `secondary.html` cargan `config.js` y `js/apariencia.js` en el `<head>`, y ese
+  script deriva los colores de `PRIMARY_COLOR`/`SECONDARY_COLOR` y los pone como
+  variables CSS sobre `<html>`. Cuando esto lo hacía `greeter.js` al arrancar
+  —al final del `<body>` y esperando el evento `GreeterReady`— se veía un
+  fogonazo de unos milisegundos con la paleta de reserva de `style.css`, que es
+  oscura y violeta. Esa paleta de reserva sólo se ve ahora si `apariencia.js` no
+  llegara a cargarse.
 - Sintaxis conservadora (nada de `?.`, `??` ni `async`), arranque en `try/catch`
   y modo degradado si algo falla: nunca una pantalla muerta.
 - Cero recursos externos. Open Sans se sirve desde `fonts/`, que son enlaces

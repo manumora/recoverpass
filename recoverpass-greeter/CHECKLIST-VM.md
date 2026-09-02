@@ -43,6 +43,8 @@ Configuración real:
 ## 3. El greeter en pantalla
 
 - [ ] Aparece el tema nuevo, no el gtk-greeter ni el gruvbox.
+- [ ] Al arrancar **no hay fogonazo**: la pantalla sale ya con los colores del
+      centro, sin pasar por la paleta oscura y violeta de reserva.
 - [ ] **La tipografía es Open Sans**, no una sustituta. (Es el punto con más
       probabilidad de fallar: si el `@font-face` relativo no cargara, se ve la
       fuente por defecto. Compruébelo con `web-greeter --debug` → pestaña Network,

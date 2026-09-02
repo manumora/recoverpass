@@ -1,3 +1,15 @@
+recoverpass-greeter (0.0.6) noble; urgency=medium
+
+  * Se acabó el fogonazo del arranque: la paleta configurada se aplica antes
+    del primer pintado. index.html y secondary.html cargan config.js y el
+    nuevo js/apariencia.js en el <head>, en vez de dejarlo para greeter.js
+    al final del <body>, que llegaba tarde y dejaba ver unos milisegundos la
+    paleta de reserva de style.css (oscura y violeta).
+  * La pantalla secundaria usa también los colores del centro, y no la
+    paleta de reserva.
+
+ -- Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>  Tue, 01 Sep 2026 13:17:00 +0200
+
 recoverpass-greeter (0.0.5) noble; urgency=medium
 
   * Pantalla duplicada: ya se puede iniciar sesión con los dos monitores
