@@ -240,10 +240,22 @@ EOF
             registrar_y_crear /etc/lightdm/lightdm.conf.d
             cat > "$DROPIN" <<'EOF'
 # Gestionado por recoverpass-greeter. Se borra al desinstalar el paquete.
-# Apunta a /usr/share/xgreeters/recoverpass-greeter.desktop, que lanza
-# web-greeter con el tema «recoverpass».
+#
+# greeter-session apunta a /usr/share/xgreeters/recoverpass-greeter.desktop,
+# que lanza web-greeter con el tema «recoverpass».
+#
+# display-setup-script pone las pantallas en modo duplicado. Se ejecuta como
+# root al arrancar el servidor X, antes del greeter, y LightDM reutiliza ese
+# mismo servidor X para la sesión que se abra después. No se toca
+# session-setup-script a propósito: la sesión normal de un usuario debe poder
+# configurar sus monitores como quiera.
+#
+# Va envuelto en «sh -c ... || true» porque LightDM DETIENE el arranque del
+# display si su display-setup-script devuelve un código distinto de 0, y eso
+# dejaría el equipo sin pantalla de acceso. Así, ni un script ausente puede.
 [Seat:*]
 greeter-session=recoverpass-greeter
+display-setup-script=/bin/sh -c "/usr/bin/recoverpass-duplicar-pantallas || true"
 EOF
             chmod 0644 "$DROPIN"
             echo "recoverpass-greeter: greeter seleccionado en $DROPIN."
@@ -256,6 +268,15 @@ EOF
             aviso "  se lee después de lightdm.conf.d, así que su valor tiene"
             aviso "  prioridad sobre $DROPIN. Comente esa línea si quiere que"
             aviso "  se use el greeter del kiosco."
+        fi
+
+        # Lo mismo con el gancho del modo duplicado.
+        if [ -f /etc/lightdm/lightdm.conf ] &&
+           grep -Eq '^[[:space:]]*display-setup-script[[:space:]]*=' /etc/lightdm/lightdm.conf; then
+            aviso "ATENCIÓN: /etc/lightdm/lightdm.conf define display-setup-script"
+            aviso "  y también se lee después, así que las pantallas NO se"
+            aviso "  duplicarán. Comente esa línea, o añada a su propio script:"
+            aviso "      /usr/bin/recoverpass-duplicar-pantallas || true"
         fi
     else
         # Este es el motivo más habitual de que «se instale bien» y la pantalla

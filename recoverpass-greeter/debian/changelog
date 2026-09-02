@@ -1,3 +1,24 @@
+recoverpass-greeter (0.0.7) noble; urgency=medium
+
+  * La pantalla de acceso fuerza el modo duplicado: la misma imagen en todas
+    las pantallas conectadas. Hacía falta porque la disposición inicial la
+    decide el servidor X, y en algunos equipos dejaba los monitores uno al
+    lado de otro: el formulario salía en uno y el otro se quedaba con el
+    reloj. Lo hace el nuevo recoverpass-duplicar-pantallas, que LightDM
+    ejecuta por display-setup-script y que llama también la sesión del
+    kiosco antes de medir la pantalla.
+  * Se pone en todas las salidas el modo de vídeo más alto que admitan todas.
+    Si no hay ninguno común no se toca nada y el motivo queda en el journal
+    (journalctl -t recoverpass-pantallas). El script no devuelve nunca un
+    código de error: LightDM detiene el arranque del display si su
+    display-setup-script falla.
+  * Nuevo parámetro FORCE_MIRROR en recoverpass.conf, activado por defecto.
+  * En el kiosco esto arregla además el tamaño de la barra y del navegador,
+    que en escritorio extendido se dimensionaban a lo ancho de los dos
+    monitores, porque salen de la pantalla X entera.
+
+ -- Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>  Wed, 02 Sep 2026 12:31:35 +0200
+
 recoverpass-greeter (0.0.6) noble; urgency=medium
 
   * Se acabó el fogonazo del arranque: la paleta configurada se aplica antes

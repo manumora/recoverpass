@@ -40,7 +40,7 @@
 
 class recoverpass_greeter (
   # Versión del paquete que hay en files/
-  String  $version           = '0.0.6',
+  String  $version           = '0.0.7',
 
   # Distribuir /etc/recoverpass/recoverpass.conf desde este módulo
   Boolean $gestionar_config  = true,
@@ -142,6 +142,13 @@ class recoverpass_greeter (
   # Ni las políticas del navegador ni la apariencia del greeter se regeneran
   # solas al cambiar el fichero: hay que rehacerlas. Si no, el navegador sigue
   # bloqueando el portal y la pantalla conserva el aspecto anterior.
+  #
+  # FORCE_MIRROR es la excepción: no se regenera nada, la duplicación de
+  # pantallas se aplica al arrancar el servidor X. Basta con repartir el
+  # fichero, porque recoverpass-update-theme notifica el reinicio prudente del
+  # greeter (sólo si nadie tiene sesión abierta). NO añada un exec que lo
+  # «aplique»: el script actúa sobre el DISPLAY que tenga delante y duplicaría
+  # la sesión que estuviera en marcha.
   exec { 'recoverpass-update-policy':
     command     => '/usr/bin/recoverpass-update-policy',
     refreshonly => true,

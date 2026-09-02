@@ -2,6 +2,7 @@ bin/recoverpass-session                     usr/bin
 bin/recoverpass-update-policy               usr/bin
 bin/recoverpass-instalar-greeter            usr/bin
 bin/recoverpass-update-theme                usr/bin
+bin/recoverpass-duplicar-pantallas          usr/bin
 etc/recoverpass/recoverpass.conf            etc/recoverpass
 share/recoverpass/chrome-policy.json.in     usr/share/recoverpass
 share/recoverpass/barra.css                 usr/share/recoverpass

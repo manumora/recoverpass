@@ -65,6 +65,13 @@ Configuración real:
 - [ ] En modo duplicado, al **volver de la sesión de recuperación** con «Salir»
       reaparecen los campos de acceso sin tener que recargar el tema, y no sale
       «window_metadata not available».
+- [ ] En un equipo que **arrancaba en escritorio extendido**, la pantalla de
+      acceso sale ya duplicada sin tocar nada, y `journalctl -t
+      recoverpass-pantallas` dice a qué modo y en qué salidas.
+- [ ] En ese mismo equipo, la sesión del kiosco también sale duplicada, y la
+      barra inferior y el navegador ocupan **un** monitor, no los dos.
+- [ ] Con `FORCE_MIRROR="false"` en `recoverpass.conf` y LightDM reiniciado, se
+      respeta la disposición que trae el equipo y el journal lo dice.
 
 ## 4. Acceso normal
 

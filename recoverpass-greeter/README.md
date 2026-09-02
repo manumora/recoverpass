@@ -126,6 +126,12 @@ cambios sobreviven a las actualizaciones, con dpkg preguntando antes de tocarlo.
 | `TIMEOUT` | `900` | Segundos antes de cerrar la sesión sola |
 | `KEYBOARD_LAYOUT` | `es` | Distribución de teclado (`setxkbmap`) |
 
+### Las pantallas
+
+| Parámetro | Por defecto | Qué hace |
+|---|---|---|
+| `FORCE_MIRROR` | `true` | Duplica la imagen en todas las pantallas conectadas, en la pantalla de acceso y en el kiosco. Pone en todas el modo de vídeo más alto que admitan **todas**, así que con un proyector de menos resolución las dos bajan a la de él. Si no hay ningún modo común no se toca nada y el motivo queda en `journalctl -t recoverpass-pantallas`. Se aplica al reiniciar LightDM, no con `recoverpass-update-theme` |
+
 ### La barra inferior
 
 | Parámetro | Por defecto | Qué hace |
@@ -186,6 +192,7 @@ ambas son decisiones conscientes:
 | `/usr/bin/recoverpass-session` | La sesión kiosco |
 | `/usr/bin/recoverpass-update-policy` | Genera las políticas del navegador desde la configuración |
 | `/usr/bin/recoverpass-instalar-greeter` | Instala el web-greeter incluido y activa el greeter |
+| `/usr/bin/recoverpass-duplicar-pantallas` | Pone las pantallas en modo duplicado. Lo llaman LightDM y la sesión del kiosco |
 | `/etc/recoverpass/recoverpass.conf` | Configuración (*conffile*) |
 | `/usr/share/recoverpass/chrome-policy.json.in` | Plantilla de las políticas |
 | `/usr/share/recoverpass/barra.css` | Aspecto del botón «Salir» |
@@ -200,7 +207,7 @@ ambas son decisiones conscientes:
 | Ruta | Qué pasa con ella |
 |---|---|
 | `/etc/pam.d/lightdm` | Se le añade un bloque delimitado. Al purgar queda **byte a byte** como estaba |
-| `/etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf` | Selección del greeter |
+| `/etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf` | Selección del greeter y `display-setup-script` para duplicar las pantallas |
 | `/var/lib/AccountsService/users/recoverpass` | Oculta la cuenta de la lista |
 | `$POLICY_DIR/recoverpass.json` | Políticas del navegador |
 | `/var/lib/recoverpass/` | Home de la cuenta. Se borra al purgar |
@@ -294,17 +301,27 @@ y lo selecciona con un *drop-in*, sin tocar `/etc/lightdm/lightdm.conf`:
 # /etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf
 [Seat:*]
 greeter-session=recoverpass-greeter
+display-setup-script=/bin/sh -c "/usr/bin/recoverpass-duplicar-pantallas || true"
 ```
 
 Ahí van juntos el parche de GPU (el Chromium interno de QtWebEngine se estrella
 al intentar usar Vulkan/GBM) y la selección del tema. Desinstalar el paquete
 borra esos dos ficheros y el equipo vuelve exactamente al greeter anterior.
 
+La segunda clave es la que fuerza el modo duplicado, y se ejecuta como root al
+arrancar el servidor X, antes de la pantalla de acceso. **La envoltura
+`sh -c "… || true"` no es un adorno:** si un `display-setup-script` termina con
+un código distinto de 0, LightDM detiene el servidor X y el equipo se queda sin
+pantalla de acceso. El script está escrito para salir siempre con 0, y esto lo
+garantiza incluso si el fichero faltara o no fuera ejecutable. `journalctl -t
+recoverpass-pantallas` cuenta qué hizo en cada arranque.
+
 > **Ojo con el orden de lectura.** LightDM lee
 > `/usr/share/lightdm/lightdm.conf.d/*.conf`, luego
 > `/etc/lightdm/lightdm.conf.d/*.conf` y **por último**
-> `/etc/lightdm/lightdm.conf`, que gana. Si ahí hay un `greeter-session`, tiene
-> prioridad sobre el drop-in. El postinst lo detecta y avisa.
+> `/etc/lightdm/lightdm.conf`, que gana. Si ahí hay un `greeter-session` o un
+> `display-setup-script`, tienen prioridad sobre el drop-in. El postinst lo
+> detecta y avisa de las dos cosas.
 
 ---
 
@@ -419,6 +436,11 @@ Está en `/usr/share/web-greeter/themes/recoverpass/`.
   el usuario teclea se declara dueña de la conversación por
   `greeter_comm.broadcast()`; las demás dejan de atender las señales. Ninguna
   ventana cancela nunca una autenticación que no sea suya.
+- Con `FORCE_MIRROR` activado —lo normal— **el caso duplicado es el único que
+  se da en la práctica**, y es el más probado: la pantalla secundaria detecta
+  que es un clon, carga el tema principal y las dos ventanas se coordinan. El
+  reloj de `secondary.html` sólo se ve en un equipo con `FORCE_MIRROR="false"`
+  y escritorio extendido.
 
 Si la detección de pantalla clonada diera problemas en algún equipo, hay una
 salida de reserva de una línea: poner `secondary_html: "index.html"` en

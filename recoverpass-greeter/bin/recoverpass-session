@@ -62,6 +62,15 @@ setxkbmap "$KEYBOARD_LAYOUT" 2>/dev/null
 xset s off -dpms 2>/dev/null
 xsetroot -solid "#1b1d26" 2>/dev/null
 
+# Duplicar las pantallas ANTES de medir: si el equipo estuviera en escritorio
+# extendido, la pantalla X mide lo que suman los dos monitores y la barra y el
+# navegador saldrían repartidos entre ambos. Es idempotente —si ya está
+# duplicado no toca nada— y nunca falla, así que no hace falta comprobar nada.
+# La pantalla de acceso lo hace por su cuenta con display-setup-script.
+if command -v recoverpass-duplicar-pantallas >/dev/null 2>&1; then
+    recoverpass-duplicar-pantallas || true
+fi
+
 # Resolución de la pantalla. Si xdpyinfo falla, se usa un tamaño razonable.
 SW=1920; SH=1080
 if command -v xdpyinfo >/dev/null 2>&1; then

@@ -1,0 +1,221 @@
+#!/bin/sh
+# /usr/bin/recoverpass-duplicar-pantallas
+#
+# Pone todas las pantallas conectadas en modo duplicado: la misma imagen en
+# todas, en la posición 0x0 y con el modo de vídeo más alto que admitan TODAS.
+#
+# Existe porque la disposición inicial la decide el servidor X por su cuenta, y
+# en algunos equipos deja las salidas una al lado de otra (escritorio
+# extendido). Entonces la pantalla de acceso sale en un monitor y el otro se
+# queda con el reloj. En la sesión del kiosco es peor: su tamaño sale de la
+# pantalla X entera (xdpyinfo), que en extendido es la suma de las dos, así que
+# la barra y el navegador se reparten entre los dos monitores.
+#
+# Lo llaman:
+#   - LightDM al arrancar el servidor X, por la clave «display-setup-script»
+#     del drop-in /etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf;
+#   - recoverpass-session al empezar la sesión del kiosco, antes de medir.
+#
+# NUNCA sale con error, y por eso no lleva «set -e»: LightDM detiene el arranque
+# del display si su display-setup-script falla, y eso dejaría el equipo SIN
+# pantalla de acceso. Cualquier problema se registra en el journal y se sale con
+# 0 dejando la disposición que hubiera.
+#
+# Registro:  journalctl -t recoverpass-pantallas
+# Permisos:  root:root 0755
+
+set -u
+
+CONF="${RECOVERPASS_CONF:-/etc/recoverpass/recoverpass.conf}"
+# Con puerta de escape para las pruebas: así se le puede dar un xrandr
+# simulado sin necesidad de un servidor X (ver tests/en-contenedor.sh).
+XRANDR="${RECOVERPASS_XRANDR:-xrandr}"
+
+# Tope de tiempo de cada llamada a xrandr. Esto se ejecuta ANTES de la pantalla
+# de acceso y LightDM espera sin límite: un xrandr colgado —un driver, un
+# monitor que no contesta al EDID— dejaría el equipo sin login para siempre.
+LIMITE=10
+
+# ---- Valores por defecto, por si falta la configuración --------------------
+FORCE_MIRROR="true"
+
+registrar() {
+    if command -v logger >/dev/null 2>&1; then
+        logger -t recoverpass-pantallas -- "$*" 2>/dev/null || true
+    fi
+    echo "recoverpass-duplicar-pantallas: $*" >&2
+}
+
+# Cualquier motivo para no tocar nada sale por aquí: queda el porqué en el
+# journal y el código de salida es 0.
+dejarlo_como_esta() {
+    registrar "$*"
+    exit 0
+}
+
+es_cierto() {
+    case "$1" in
+        true|TRUE|yes|1|si|sí) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# La configuración se lee DESPUÉS de comprobar su sintaxis, al revés que en el
+# resto de los scripts: un «.» sobre un fichero con un paréntesis de más hace
+# salir al shell con error, y aquí eso se lo devolvería a LightDM. Con los
+# valores por defecto se sigue haciendo lo correcto.
+leer_configuracion() {
+    [ -r "$CONF" ] || return 0
+    if sh -n "$CONF" 2>/dev/null; then
+        # shellcheck source=/dev/null
+        . "$CONF"
+    else
+        registrar "AVISO: $CONF tiene errores de sintaxis; se usan los valores por defecto"
+    fi
+}
+
+# xrandr siempre con tope de tiempo. Si faltara «timeout» (coreutils, que es
+# esencial) se llama tal cual: mejor eso que no duplicar nunca.
+if command -v timeout >/dev/null 2>&1; then
+    xr() { timeout "$LIMITE" "$XRANDR" "$@"; }
+else
+    xr() { "$XRANDR" "$@"; }
+fi
+
+# Analiza «xrandr --query» y devuelve cinco líneas:
+#   1. las salidas conectadas, separadas por espacios
+#   2. la salida primaria actual (vacío si ninguna lo es)
+#   3. 1 si ya están todas duplicadas, 0 si no
+#   4. el modo más alto común a todas (vacío si no hay ninguno)
+#   5. los modos de cada salida, para el aviso de cuando no hay modo común
+analizar() {
+    awk '
+      # Cabecera de una salida: «NOMBRE connected [primary] [WxH+X+Y] ...»
+      /^[^ \t]/ && / connected/ {
+        actual = $1
+        orden[++n] = actual
+        if ($0 ~ / connected primary/) primaria = actual
+        geo = ""
+        for (i = 2; i <= NF; i++) {
+          if ($i ~ /^[0-9]+x[0-9]+\+[0-9]+\+[0-9]+$/) { geo = $i; break }
+        }
+        geometria[actual] = geo
+        next
+      }
+      # Cualquier otra línea sin sangrar (Screen, disconnected...) cierra la
+      # salida en curso, para no atribuirle modos que no son suyos.
+      /^[^ \t]/ { actual = ""; next }
+      # Línea de modo: sangrada y con WxH en el primer campo. Los entrelazados
+      # («1920x1080i») no encajan en el patrón y se descartan a propósito.
+      actual != "" && $1 ~ /^[0-9]+x[0-9]+$/ {
+        if (!((actual SUBSEP $1) in visto)) {
+          visto[actual SUBSEP $1] = 1
+          cuenta[$1]++
+          modos[actual] = modos[actual] " " $1
+        }
+        next
+      }
+      END {
+        salidas = ""
+        for (i = 1; i <= n; i++) salidas = (salidas == "" ? orden[i] : salidas " " orden[i])
+
+        # Duplicado = todas en +0+0 y con el mismo tamaño. Una salida sin
+        # geometría está apagada, así que tampoco está duplicada.
+        duplicado = (n >= 2)
+        ref = ""
+        for (i = 1; i <= n; i++) {
+          g = geometria[orden[i]]
+          if (g !~ /\+0\+0$/) { duplicado = 0; break }
+          split(g, trozo, "+")
+          if (ref == "") ref = trozo[1]
+          else if (trozo[1] != ref) { duplicado = 0; break }
+        }
+
+        # El modo común de mayor área. El desempate por nombre es sólo para
+        # que la elección sea siempre la misma.
+        mejor = ""; area = 0
+        for (m in cuenta) {
+          if (cuenta[m] != n) continue
+          split(m, d, "x")
+          a = d[1] * d[2]
+          if (a > area || (a == area && m < mejor)) { area = a; mejor = m }
+        }
+
+        detalle = ""
+        if (mejor == "" && n >= 2) {
+          for (i = 1; i <= n; i++) {
+            detalle = detalle orden[i] " [" substr(modos[orden[i]], 2) "] "
+          }
+        }
+
+        print salidas
+        print primaria
+        print duplicado + 0
+        print mejor
+        print detalle
+      }
+    '
+}
+
+leer_configuracion
+
+# ---- 1. ¿Hay que duplicar? -------------------------------------------------
+es_cierto "$FORCE_MIRROR" ||
+    dejarlo_como_esta "FORCE_MIRROR=$FORCE_MIRROR: se respeta la disposición del equipo"
+
+# ---- 2. ¿Se puede hablar con el servidor X? --------------------------------
+[ -n "${DISPLAY:-}" ] ||
+    dejarlo_como_esta "sin DISPLAY: no hay ningún servidor X al que hablar"
+
+command -v "$XRANDR" >/dev/null 2>&1 ||
+    dejarlo_como_esta "falta xrandr (paquete x11-xserver-utils): no se puede duplicar"
+
+CONSULTA=$(xr --query 2>/dev/null) ||
+    dejarlo_como_esta "«xrandr --query» no responde: se deja la disposición actual"
+
+# ---- 3. Qué hay conectado --------------------------------------------------
+ANALISIS=$(printf '%s\n' "$CONSULTA" | analizar)
+SALIDAS=$(printf '%s\n' "$ANALISIS" | sed -n 1p)
+PRIMARIA=$(printf '%s\n' "$ANALISIS" | sed -n 2p)
+YA_DUPLICADO=$(printf '%s\n' "$ANALISIS" | sed -n 3p)
+MODO=$(printf '%s\n' "$ANALISIS" | sed -n 4p)
+DETALLE=$(printf '%s\n' "$ANALISIS" | sed -n 5p)
+
+CUANTAS=0
+for _s in $SALIDAS; do CUANTAS=$((CUANTAS + 1)); done
+
+[ "$CUANTAS" -ge 2 ] ||
+    dejarlo_como_esta "una sola pantalla conectada (${SALIDAS:-ninguna}): nada que duplicar"
+
+# Idempotente: si ya está duplicado no se reaplica nada, que esto se ejecuta en
+# cada arranque de la pantalla de acceso y en cada sesión del kiosco.
+[ "$YA_DUPLICADO" = "1" ] &&
+    dejarlo_como_esta "ya está duplicado en $CUANTAS pantallas ($SALIDAS): no se toca nada"
+
+[ -n "$MODO" ] ||
+    dejarlo_como_esta "sin modo común entre las salidas, se deja la disposición actual: $DETALLE"
+
+# ---- 4. Duplicar -----------------------------------------------------------
+# Una sola llamada a xrandr con todas las salidas, para que el cambio sea de
+# una pieza y no se vea el escritorio a medio recolocar.
+[ -n "$PRIMARIA" ] || PRIMARIA=$(printf '%s' "$SALIDAS" | cut -d' ' -f1)
+
+ORDENES=""
+for salida in $SALIDAS; do
+    ORDENES="$ORDENES --output $salida --mode $MODO --pos 0x0 --rotate normal"
+    [ "$salida" = "$PRIMARIA" ] && ORDENES="$ORDENES --primary"
+done
+
+# shellcheck disable=SC2086
+xr $ORDENES 2>/dev/null ||
+    dejarlo_como_esta "xrandr no ha podido poner $MODO en $SALIDAS: se deja la disposición actual"
+
+# ---- 5. Comprobar que ha quedado duplicado ---------------------------------
+COMPROBACION=$(xr --query 2>/dev/null | analizar | sed -n 3p)
+if [ "$COMPROBACION" = "1" ]; then
+    registrar "duplicado a $MODO en $CUANTAS pantallas ($SALIDAS), primaria $PRIMARIA"
+else
+    registrar "ATENCIÓN: se ha aplicado $MODO en $SALIDAS pero la disposición no ha quedado duplicada"
+fi
+
+exit 0

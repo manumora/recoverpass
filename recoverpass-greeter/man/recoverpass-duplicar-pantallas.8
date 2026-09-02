@@ -1,0 +1,88 @@
+.TH RECOVERPASS-DUPLICAR-PANTALLAS 8 "2026-09-02" "recoverpass-greeter 1.0.0" "Manual del administrador"
+.SH NOMBRE
+recoverpass\-duplicar\-pantallas \- pone las pantallas en modo duplicado
+.SH SINOPSIS
+.B recoverpass\-duplicar\-pantallas
+.SH DESCRIPCIÓN
+Pone todas las salidas conectadas en modo duplicado: la misma imagen en todas,
+en la posición 0x0 y con el modo de vídeo más alto que admitan
+.IR todas .
+.PP
+Hace falta porque la disposición inicial la decide el servidor X por su cuenta,
+y en algunos equipos deja los monitores uno al lado de otro (escritorio
+extendido). Entonces el formulario de acceso sale en un monitor y el otro se
+queda con el reloj de la pantalla secundaria. En la sesión del kiosco es peor:
+su tamaño se toma de la pantalla X entera, que en extendido es la suma de los
+dos monitores, así que la barra inferior y el navegador se reparten entre
+ambos.
+.PP
+No se ejecuta a mano casi nunca. Lo llaman:
+.TP
+.B LightDM
+al arrancar el servidor X, por la clave
+.B display\-setup\-script
+del fichero
+.IR /etc/lightdm/lightdm.conf.d/99\-recoverpass\-greeter.conf ,
+que escribe el postinst del paquete.
+.TP
+.B recoverpass\-session
+al empezar la sesión del kiosco, antes de medir la pantalla.
+.PP
+Se controla con
+.B FORCE_MIRROR
+en
+.IR /etc/recoverpass/recoverpass.conf .
+Con
+.B "FORCE_MIRROR=\(dqfalse\(dq"
+no hace nada y se respeta la disposición que traiga el equipo. Un cambio en ese
+parámetro se aplica en el siguiente arranque de la pantalla de acceso:
+.PP
+.RS
+sudo systemctl restart lightdm
+.RE
+.SH AVISOS
+.SS Nunca devuelve un código de error
+LightDM detiene el arranque del display si su
+.B display\-setup\-script
+devuelve un código distinto de 0, y eso dejaría el equipo sin pantalla de
+acceso. Por eso este programa sale siempre con 0 y registra el motivo de no
+haber hecho nada. En el drop-in, además, la orden va envuelta en
+.BR "sh \-c \(dq... || true\(dq" .
+.SS Duplicar baja la resolución al modo común
+En un equipo con un proyector de menos resolución, las dos pantallas bajan a la
+del proyector, que es lo que significa duplicar. Si en algún equipo no interesa,
+ahí está
+.BR FORCE_MIRROR .
+.SS Si no hay ningún modo común no se toca nada
+Cuando las salidas no comparten ningún modo de vídeo, la disposición se queda
+como estuviera y en el journal aparecen los modos de cada una, que es lo que
+hace falta para decidir qué hacer con ese equipo:
+.PP
+.RS
+journalctl \-t recoverpass\-pantallas
+.RE
+.SS Enchufar un monitor con la pantalla de acceso ya arrancada
+LightDM no vuelve a ejecutar el
+.B display\-setup\-script
+al detectar una salida nueva, así que un proyector enchufado a mitad no se
+duplica solo. Se resuelve reiniciando la pantalla de acceso, y en cualquier
+caso la sesión del kiosco vuelve a intentarlo al arrancar.
+.SH VARIABLES DE ENTORNO
+.TP
+.B RECOVERPASS_CONF
+Ruta del fichero de configuración. Por omisión
+.IR /etc/recoverpass/recoverpass.conf .
+.TP
+.B RECOVERPASS_XRANDR
+Programa que se usa en lugar de
+.BR xrandr .
+Sólo para las pruebas: permite darle un xrandr simulado y comprobar qué modo
+elegiría sin necesidad de un servidor X.
+.TP
+.B DISPLAY
+Si no está definida, no hay servidor X al que hablar y el programa se limita a
+registrarlo.
+.SH VÉASE TAMBIÉN
+.BR recoverpass-session (1),
+.BR recoverpass-update-theme (8),
+.BR xrandr (1)
