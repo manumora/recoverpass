@@ -14,68 +14,49 @@ tampoco puede abrir un navegador para usar la web y cambiar/recuperar su contras
 
 ## La solución
 
-Se sustituye el greeter por [web-greeter](https://github.com/JezerM/web-greeter)
-con un `theme` propio que añade un botón secundario junto al formulario de acceso.
-Ese botón autentica una cuenta local restringida, `recoverpass`, que entra sin
-contraseña gracias a una línea de `pam_succeed_if` acotada a LightDM, y arranca
-una sesión en modo `kiosk`: un navegador anclado a la web de cambio de contraseña, 
-sin barra de direcciones, sin pestañas y sin gestor de ventanas, más una barra 
-inferior con un botón «Salir» que devuelve a la pantalla de acceso.
+Se sustituye la pantalla de acceso por [web-greeter](https://github.com/JezerM/web-greeter)
+con un tema propio que añade un botón "Recuperar contraseña" junto al formulario de acceso.
+
+![Pantalla de acceso con el botón de recuperación](img/main.png)
+
+Ese botón entra con una cuenta local restringida, `recoverpass`, que no pide
+contraseña y sólo sirve para eso, y abre una sesión de de navegador en modo kiosco
+anclado a la web de cambio de contraseña, sin barra de direcciones, sin pestañas
+y sin escritorio alrededor, más una barra inferior con un botón «Salir» que
+devuelve a la pantalla de acceso.
+
+![Pantalla de gestión de contraseña](img/change-password.png)
 
 Todo ello va empaquetado en un `.deb` que deja un equipo limpio completamente
 configurado y que se puede desinstalar sin dejar rastro.
 
+
+
 ## Cambio de contraseña obligatorio
 
-Además del botón de recuperación, el propio tema del greeter sabe responder
-cuando LDAP exige cambiar la contraseña antes de dejar entrar (`pwdReset` +
-`pwdMustChange`): esto ocurre siempre que un administrador restablece la
-contraseña de un usuario cuya política tiene activado el cambio obligatorio,
-que deberá ponerse una contraseña nueva en su próximo inicio de sesión. En
-vez de un error críptico o un "usuario o contraseña incorrectos", aparecen
-en la propia pantalla de acceso los campos «Contraseña nueva» y «Repita la
-contraseña nueva», con los requisitos de longitud y complejidad marcándose
-en verde o rojo según se escribe. Los detalles —por qué no basta con
-responder a las preguntas de PAM en el orden esperado, de dónde sale la
-longitud mínima, cómo se traducen los avisos del directorio— están en el
-apartado 9 de [`recoverpass-greeter/README.md`](recoverpass-greeter/README.md).
-
-## Capturas
-
-![Pantalla de acceso con el botón de recuperación](img/main.png)
+Además del botón de recuperación, la propia pantalla de acceso sabe responder
+cuando LDAP exige cambiar la contraseña antes de dejar entrar: esto ocurre
+siempre que un administrador restablece la contraseña de un usuario cuya
+política tiene activado el cambio obligatorio, que deberá ponerse una
+contraseña nueva en su próximo inicio de sesión. En vez de un error críptico o
+un "usuario o contraseña incorrectos", aparecen en la propia pantalla de acceso
+los campos «Contraseña nueva» y «Repita la contraseña nueva», con los
+requisitos de longitud y complejidad marcándose en verde o rojo según se
+escribe. Los detalles —de dónde sale la longitud mínima, cómo se traducen los
+avisos del directorio y por qué el sistema no pregunta lo que uno esperaría—
+están en el apartado 9 de
+[`recoverpass-greeter/README.md`](recoverpass-greeter/README.md).
 
 ![Cambio de contraseña obligatorio en la propia pantalla de acceso](img/new-password.png)
 
-![Pantalla de gestión de contraseña](img/change-password.png)
-
-## Qué hay en este repositorio
-
-| Ruta | Qué es |
-|---|---|
-| `recoverpass-greeter/` | **El proyecto.** Fuente empaquetable con `dpkg-buildpackage`, tema del greeter, mock de desarrollo y batería de pruebas |
-| `recoverpass-greeter/README.md` | Documentación completa: instalación, configuración, recuperación desde un TTY y limitaciones conocidas |
-| `recoverpass-greeter/CHECKLIST-VM.md` | Verificación manual en máquina virtual de lo que no se puede automatizar |
-| `puppet/recoverpass_greeter/` | Módulo de Puppet para el despliegue masivo: instala el paquete, web-greeter y reparte `recoverpass.conf` |
-| `install_puppet` | Script de una línea (`curl \| bash`) que instala el módulo de Puppet en el servidor |
-| `nueva-version.sh` | Sube la versión del paquete, lo compila y actualiza el `.deb` y el zip de Puppet en un solo paso |
-| `recoverpass_greeter_puppet.zip` | El módulo de Puppet empaquetado, lo que descarga `install_puppet` |
-
-## Construcción y uso
+## Instalación y uso
 
 En la raíz del repositorio hay un paquete ya construido, así que se puede
 instalar directamente:
 
 ```bash
-sudo apt install ./recoverpass-greeter_0.0.2_all.deb
+sudo apt install ./recoverpass-greeter_0.0.6_all.deb
 sudo recoverpass-instalar-greeter    # instala el web-greeter que trae el paquete
-```
-
-Para construirlo desde las fuentes:
-
-```bash
-cd recoverpass-greeter
-dpkg-buildpackage -us -uc -b
-sudo apt install ../recoverpass-greeter_0.0.2_all.deb
 ```
 
 Después hay que poner la URL real del portal web en
@@ -84,16 +65,9 @@ que no se ejecuta solo. Todos los parámetros, los ficheros que toca, el
 diagnóstico y los problemas conocidos están en
 [`recoverpass-greeter/README.md`](recoverpass-greeter/README.md).
 
-Para probar el paquete completo —construcción, `lintian`, instalación, doble
-instalación, desinstalación y purgado— en un contenedor Ubuntu 24.04:
-
-```bash
-./recoverpass-greeter/tests/probar.sh     # requiere Docker
-```
-
 ## Instalación mediante Puppet
 
-Para desplegar el kiosco en todo el parque de equipos, en vez de instalarlo uno
+Para desplegar el paquete en todo el parque de equipos, en vez de instalarlo uno
 a uno, hay un módulo de Puppet que instala el paquete, web-greeter y reparte
 `recoverpass.conf` a todos los nodos que lo incluyan.
 
@@ -122,7 +96,7 @@ centro que ya se hubieran configurado.
 
 Después de ejecutar el script de instalación:
 
-1. **Configurar el kiosco**: edita
+1. **Configurar**: edita
    `/etc/puppetlabs/code/environments/production/modules/recoverpass_greeter/files/recoverpass.conf`
    con la URL real de la web de cambio de contraseña (`PORTAL_URL`) y, si se
    quiere, los colores, la imagen de fondo o el nombre del centro
@@ -174,8 +148,8 @@ Después de ejecutar el script de instalación:
 El paquete pasa `lintian` sin errores ni avisos, y el ciclo de instalación,
 reinstalación, desinstalación y purgado está verificado de forma automática,
 incluyendo que `/etc/pam.d/lightdm` queda byte a byte idéntico al original
-después de purgar. El tema se ha probado contra un objeto `lightdm` simulado,
-sin errores de consola.
+después de purgar. El tema se ha probado con una pantalla de acceso
+simulada, sin errores de consola.
 
 Está desplegado y funcionando en equipos reales con Ubuntu 22.04: greeter, botón,
 sesión kiosco, portal y botón «Salir». El resto de la verificación manual —lo que
@@ -189,8 +163,7 @@ punto, en [`recoverpass-greeter/CHECKLIST-VM.md`](recoverpass-greeter/CHECKLIST-
 El tema del greeter está rediseñado por completo (marcado, hojas de estilo y
 JavaScript propios), pero parte del tema `dracula` de
 [web-greeter-themes](https://github.com/JezerM/web-greeter-themes), de JezerM, y
-conserva su estructura de módulos y el planteamiento del objeto simulado de
-pruebas. Se mantiene por ello su licencia y su atribución.
+conserva su estructura y el planteamiento del simulador de pruebas. Se mantiene por ello su licencia y su atribución.
 
 ## Licencia
 
