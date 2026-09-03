@@ -161,6 +161,17 @@ proveedor de identidad externo. Abra el portal en un equipo normal con la consol
 de red del navegador, anote los dominios que pide y añádalos a
 `ALLOWED_DOMAINS`. Si no, la página se verá rota.
 
+### Los avisos de rechazo
+
+Cuando el directorio rechaza el acceso y PAM explica por qué, la pantalla lo
+dice en castellano en vez del genérico. Véase el apartado 9. Igual que la
+sección de apariencia, esto no lo lee el tema directamente: hace falta
+`sudo recoverpass-update-theme`.
+
+| Parámetro | Por defecto | Qué hace |
+|---|---|---|
+| `LOCKED_ACCOUNT_HELP` | `Avise al departamento de sistemas.` | Coletilla que se añade al aviso cuando el rechazo es de algo que el usuario no puede arreglar solo: cuenta bloqueada, desactivada o expirada. Para poner ahí la extensión o el correo del centro. Vacío deja el aviso sin coletilla, y **no** se añade al aviso de contraseña caducada, que tiene arreglo por sí misma |
+
 ### El cambio de contraseña obligatorio
 
 Véase el apartado 9 para el comportamiento completo. Igual que la sección de
@@ -325,7 +336,7 @@ recoverpass-pantallas` cuenta qué hizo en cada arranque.
 
 ---
 
-## 9. Cambio de contraseña obligatorio
+## 9. Cambio de contraseña obligatorio y cuentas rechazadas
 
 Esto es independiente del botón de recuperación: ocurre en la propia pantalla
 de acceso, con cualquier usuario, sin pasar por el kiosco.
@@ -376,6 +387,15 @@ iniciar sesión, para no hacer que el usuario la teclee dos veces.
   cargado en el overlay `ppolicy`—, pero se piden en el tema por coherencia
   con las mismas cuatro reglas que ya exige la web de EduControl. No son
   configurables.
+- **Distinta de la actual**, que el directorio sí rechazaría, y **las dos
+  casillas coinciden**, que se comprueba bajo la segunda.
+
+**«Cambiar contraseña» está deshabilitado mientras quede un solo requisito en
+rojo**, incluidas esas dos últimas comprobaciones, así que con el botón
+deshabilitado el Enter tampoco envía el formulario. La lista es por tanto la
+explicación completa de por qué no se puede pulsar: nunca hay que enviar el
+formulario para averiguar qué falta. Las comprobaciones se repiten igualmente
+al enviar, como cinturón de más, por si el formulario se enviara por otra vía.
 
 ### Si el directorio rechaza la contraseña nueva
 
@@ -394,6 +414,49 @@ pedir la contraseña actual), o bien —comprobado con un rechazo por historial
 de contraseñas— cierra la autenticación entera de golpe: el tema muestra
 igualmente el motivo, no un mensaje genérico, y hay que volver a iniciar
 sesión.
+
+### Cuando la cuenta está bloqueada, desactivada o caducada
+
+El mismo mecanismo sirve para el **acceso normal**. Si alguien no puede entrar
+porque el directorio tiene su cuenta bloqueada, reintentar la contraseña no
+arregla nada: sólo consigue agotar más intentos. Cuando PAM manda el motivo por
+`show_message`, la pantalla lo dice:
+
+| Lo que manda el directorio | Lo que se ve |
+|---|---|
+| `Account is locked` | «La cuenta está bloqueada y no puede iniciar sesión.» + `LOCKED_ACCOUNT_HELP` |
+| `Account is disabled` | «La cuenta está desactivada.» + `LOCKED_ACCOUNT_HELP` |
+| `Your account has expired` | «La cuenta ha expirado.» + `LOCKED_ACCOUNT_HELP` |
+| `Password has expired` | «La contraseña ha caducado. Debe establecer una nueva.» |
+| `... will expire in N days` | «La contraseña caducará pronto. Cámbiela cuanto antes.», y la sesión arranca igual |
+
+Tres decisiones que conviene conocer:
+
+- **Sólo se traducen literales inequívocos.** `Permission denied`,
+  `Authentication failure` o `Access denied for this service` pueden venir de
+  cualquier sitio —contraseña mal escrita incluida— y caen a propósito en
+  «Usuario o contraseña incorrectos.». Acusar de bloqueo a quien sólo se ha
+  equivocado de contraseña sería peor que el genérico.
+- **Decir «la cuenta está bloqueada» confirma que ese usuario existe.** Es una
+  concesión deliberada: en un aula, quien está delante del equipo ya suele saber
+  qué usuarios hay, y el alumnado necesita entender qué le pasa.
+- **Puede que no llegue nada.** Con `pam_sss` el motivo real se queda a veces en
+  el log de sssd y al greeter sólo llega `Permission denied`; y con `ppolicy` una
+  cuenta «desactivada» se modela normalmente con `pwdAccountLockedTime`, así que
+  llega como bloqueada. En esos casos se ve el genérico, que es el
+  comportamiento de siempre, no un fallo del tema.
+
+Si en su directorio aparece el genérico donde debería salir un motivo, el texto
+que mandó PAM está registrado en el log del greeter:
+
+```bash
+sudo grep -i "sin traducción" /var/log/lightdm/*greeter*.log
+```
+
+Con ese literal se añade una fila a `TRADUCCIONES_MENSAJE_PAM` en
+`js/greeter.js` y otra a `MOTIVOS_RECHAZO` en `mock/lightdm-mock.js`, para que
+el escenario quede cubierto. Es el mismo procedimiento con el que se recogieron
+los textos que ya se traducen.
 
 ### Desarrollo y pruebas
 
@@ -458,8 +521,11 @@ python3 -m http.server 8765 --bind 127.0.0.1
 
 y abra `http://127.0.0.1:8765/mock/index.html` en un Chrome normal. Esa página
 lista los escenarios: acceso correcto, contraseña incorrecta, PAM que sí
-pregunta, fallo de recuperación, fallo de `start_session`, LightDM mudo y lista
-de usuarios oculta. La contraseña de los usuarios simulados es `demo`.
+pregunta, fallo de recuperación, fallo de `start_session`, LightDM mudo, lista
+de usuarios oculta y los cinco motivos de rechazo del directorio
+(`?rechazo=bloqueada`, `desactivada`, `expirada`, `caducada`,
+`avisocaducidad` y `desconocido`). La contraseña de los usuarios simulados es
+`demo`.
 
 El simulado sólo se activa fuera del greeter: comprueba `window._ready_event` y
 `window.qt`, que web-greeter define al crear el documento.

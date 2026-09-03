@@ -95,6 +95,16 @@
      mensaje genérico sin decir el motivo real. Ver alMensajePam(). */
   var ultimoMensajePam = "";
 
+  /* Motivo por el que el DIRECTORIO ha rechazado el acceso, ya traducido y
+     con su coletilla de ayuda, cuando PAM lo ha explicado por show_message:
+     cuenta bloqueada, desactivada, expirada o contraseña caducada. Va aparte
+     de ultimoMensajePam porque no todo aviso de PAM sirve como motivo de un
+     rechazo: los informativos («la contraseña caducará en 7 días») llegan en
+     accesos que siguen adelante y repetirlos al final sería mentir. Lo lee
+     sólo la rama de acceso de alCompletar(); si PAM no manda nada se queda
+     vacío y sale el genérico, que es el caso de una contraseña mal escrita. */
+  var ultimoMotivoRechazo = "";
+
   /* Reglas de complejidad de la contraseña nueva: las mismas cuatro que ya
      exige la web de EduControl (PasswordManagementView.tsx) — ppolicy en
      este directorio sólo impone longitud mínima (pwdMinLength), no hay
@@ -166,6 +176,10 @@
     mostrarSesion: true,
     nombreCentro: "",
     zonaHoraria: "Europe/Madrid",
+    /* Coletilla de los avisos de cuenta bloqueada, desactivada o expirada
+       (LOCKED_ACCOUNT_HELP en recoverpass.conf). Con el tema abierto a mano,
+       sin config.js, se usa ésta. */
+    ayudaCuentaBloqueada: "Avise al departamento de sistemas.",
     /* Requisitos de la contraseña nueva en el cambio obligatorio. Con la URL
        vacía no se intenta ninguna petición: se usa longitudMinimaClave tal
        cual. Ver cargarRequisitosClaveRemotos(). */
@@ -261,9 +275,10 @@
         controles[i].disabled = !!si;
       }
     }
-    /* Después del bucle: el botón de acceso no depende sólo del bloqueo, sino
-       también de que haya usuario y contraseña escritos. */
+    /* Después del bucle: los dos botones primarios no dependen sólo del
+       bloqueo, sino de que sus campos estén rellenos y sean válidos. */
     actualizarEstadoEntrar();
+    actualizarRequisitosClave();
   }
 
   /* «Iniciar sesión» sólo se habilita con los dos campos rellenos.
@@ -343,6 +358,7 @@
     pasoCambio = null;
     repitePendiente = false;
     ultimoMensajePam = "";
+    ultimoMotivoRechazo = "";
     huboPreguntaClaveAcceso = false;
     nuevaClave = "";
     repiteClave = "";
@@ -783,6 +799,7 @@
       ocultarCubierta();
       mostrarMensaje("", "");
       ultimoMensajePam = "";
+      ultimoMotivoRechazo = "";
       manejarPreguntaCambioClave(texto, g);
       return;
     }
@@ -861,48 +878,176 @@
     mostrarFormularioCambioClave();
   }
 
-  /* Los avisos de show_message vienen en inglés: son los literales propios
-     de pam_ldap/pam_sss, sin traducir pese al locale español del equipo
-     (comprobado en un equipo real: «Password change failed: Server
-     message: Password is in history of old passwords», etc.). Se traducen
-     aquí los que se han visto de verdad; cualquier otro se cambia por un
-     aviso genérico en español — nunca se enseña el texto en inglés tal
-     cual — y el original queda registrado por si hay que ampliar la lista. */
+  /* Contexto en el que llega un aviso de show_message. Hace falta porque la
+     misma tabla se usa en dos momentos muy distintos y el aviso de reserva no
+     puede ser el mismo en los dos:
+
+       CTX_ACCESO  mientras se comprueban usuario y contraseña. Aquí NO hay
+                   reserva: un texto que no se reconozca no se traduce a nada,
+                   no se pinta y alCompletar() deja el «Usuario o contraseña
+                   incorrectos.» de siempre. Decirle a alguien un motivo
+                   equivocado —«su cuenta está bloqueada»— cuando sólo se ha
+                   equivocado de contraseña es peor que no decirle nada.
+       CTX_CAMBIO  dentro del cambio de contraseña obligatorio. Ahí sí hay una
+                   reserva útil, porque se sabe que lo que ha fallado es la
+                   contraseña NUEVA.
+       CTX_AMBOS   filas que valen para los dos. */
+  var CTX_ACCESO = "acceso";
+  var CTX_CAMBIO = "cambio";
+  var CTX_AMBOS = "ambos";
+
+  var GENERICO_ACCESO = "Usuario o contraseña incorrectos.";
+  var GENERICO_CAMBIO = "El directorio ha rechazado la contraseña nueva. Pruebe con otra.";
+
+  /* Los avisos de show_message vienen en inglés: son los literales propios de
+     pam_ldap/pam_sss, sin traducir pese al locale español del equipo. Buena
+     parte de ellos no los redacta PAM, sino OpenLDAP: son los textos de
+     ldap_passwordpolicy_err2txt() del overlay ppolicy, que el módulo reenvía
+     tal cual dentro de «Password change failed: Server message: ...». De ahí
+     salieron los del cambio de contraseña, comprobados en un equipo real
+     («Password is in history of old passwords»), y de la misma función salen
+     «Account is locked» y «Password has expired». Los de pam_sss hay que
+     confirmarlos en un equipo del parque; ver CHECKLIST-VM.md.
+
+     Cada fila dice:
+       contexto  en qué momento tiene sentido (ver CTX_*)
+       prueba    expresión regular sobre el texto ORIGINAL en inglés
+       texto     lo que se muestra, en castellano
+       motivo    si sirve como MOTIVO de un acceso rechazado, es decir si
+                 alCompletar() puede repetirlo en vez del genérico. Los avisos
+                 informativos («caducará en 7 días») no lo son: llegan en
+                 accesos que siguen adelante
+       ayuda     si se le añade la coletilla configurable LOCKED_ACCOUNT_HELP,
+                 para que cada centro ponga su extensión o su correo
+
+     Se devuelve la PRIMERA fila que encaje después de filtrar por contexto,
+     así que el orden importa: el aviso de caducidad PRÓXIMA va antes que el de
+     caducidad consumada, y cada regla nombra su sustantivo (account/password)
+     en vez de fiarse de «expired» a secas, para que «account expired» y
+     «password expired» no se confundan. */
   var TRADUCCIONES_MENSAJE_PAM = [
-    { prueba: /in history of old passwords/i,
+    /* --- Informativo: el acceso sigue adelante --------------------------- */
+    { contexto: CTX_AMBOS, motivo: false, ayuda: false,
+      prueba: /will expire in|expiration warning/i,
+      texto: "La contraseña caducará pronto. Cámbiela cuanto antes." },
+
+    /* --- La cuenta no puede entrar, y el usuario no lo puede arreglar ---- */
+    { contexto: CTX_AMBOS, motivo: true, ayuda: true,
+      prueba: /account (is |has been |was )?locked|accountlocked|account.{0,12}lockout|authentication is denied until/i,
+      texto: "La cuenta está bloqueada y no puede iniciar sesión." },
+    { contexto: CTX_AMBOS, motivo: true, ayuda: true,
+      prueba: /account (is |has been |was )?(disabled|deactivated|inactive)/i,
+      texto: "La cuenta está desactivada." },
+    { contexto: CTX_AMBOS, motivo: true, ayuda: true,
+      prueba: /account (has |is |was )?expired/i,
+      texto: "La cuenta ha expirado." },
+
+    /* --- Contraseña caducada. Vale en los dos contextos: el aviso del
+       cambio obligatorio llega ANTES de que alPrompt() pase a
+       MODO_CAMBIO_CLAVE, así que se recibe todavía en CTX_ACCESO. Sin
+       coletilla de ayuda: esto tiene arreglo por sí mismo. -------------- */
+    { contexto: CTX_AMBOS, motivo: true, ayuda: false,
+      prueba: /password (has |is |was )?expired|expired password/i,
+      texto: "La contraseña ha caducado. Debe establecer una nueva." },
+
+    /* --- Sólo dentro del cambio de contraseña obligatorio ---------------- */
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /in history of old passwords/i,
       texto: "Esa contraseña ya se ha usado antes. Elija una distinta." },
-    { prueba: /old password (is )?not accepted|invalid credentials/i,
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /old password (is )?not accepted|invalid credentials/i,
       texto: "No se ha podido verificar la contraseña actual. Vuelva a iniciar sesión e inténtelo de nuevo." },
-    { prueba: /too short|minimum.*length/i,
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /too short|minimum.*length/i,
       texto: "La contraseña nueva es demasiado corta." },
-    { prueba: /quality/i,
-      texto: "La contraseña nueva no cumple la política de calidad del directorio." },
-    { prueba: /password expired/i,
-      texto: "La contraseña ha caducado. Debe establecer una nueva." }
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /quality/i,
+      texto: "La contraseña nueva no cumple la política de calidad del directorio." }
+
+    /* TEXTOS QUE NO SE TRADUCEN A NINGÚN MOTIVO, A PROPÓSITO. Pueden venir de
+       cualquier sitio, y confundirlos sería acusar de bloqueo a quien sólo se
+       ha equivocado de contraseña. Todos caen en el genérico:
+
+         «Permission denied.»              pam_sss, para casi cualquier motivo
+                                           (contraseña mala, filtro de acceso,
+                                           cuenta bloqueada...). El motivo real
+                                           se queda en el log de sssd
+         «Authentication failure»          pam_unix/pam_sss
+         «Access denied for this service.» pam_sss, ldap_access_filter
+         «System is offline, ...»          pam_sss sin red
+
+       «Invalid credentials» sí se traduce, pero SÓLO en CTX_CAMBIO, donde
+       significa que no se pudo verificar la contraseña actual. */
   ];
 
-  function traducirMensajePam(texto) {
+  /* Coletilla configurable de los avisos de cuenta bloqueada, desactivada o
+     expirada (LOCKED_ACCOUNT_HELP). Si config.js no está o trae algo raro, el
+     aviso se queda sin ella: es información de más, nunca un requisito. */
+  function conAyuda(texto) {
+    var ayuda = "";
+    try {
+      ayuda = String(cfg().ayudaCuentaBloqueada || "").replace(/^\s+|\s+$/g, "");
+    } catch (error) {
+      ayuda = "";
+    }
+    return ayuda ? texto + " " + ayuda : texto;
+  }
+
+  /* Devuelve { texto, motivo }: el texto en castellano (vacío si no se
+     reconoce y estamos en el acceso) y si sirve como motivo de un rechazo. */
+  function traducirMensajePam(texto, contexto) {
     var t = String(texto || "");
+    var ctx = contexto === CTX_CAMBIO ? CTX_CAMBIO : CTX_ACCESO;
     if (!t) {
-      return "";
+      return { texto: "", motivo: false };
     }
     for (var i = 0; i < TRADUCCIONES_MENSAJE_PAM.length; i++) {
-      if (TRADUCCIONES_MENSAJE_PAM[i].prueba.test(t)) {
-        return TRADUCCIONES_MENSAJE_PAM[i].texto;
+      var fila = TRADUCCIONES_MENSAJE_PAM[i];
+      if (fila.contexto !== CTX_AMBOS && fila.contexto !== ctx) {
+        continue;
+      }
+      if (fila.prueba.test(t)) {
+        return {
+          texto: fila.ayuda ? conAyuda(fila.texto) : fila.texto,
+          motivo: !!fila.motivo
+        };
       }
     }
-    avisar("mensaje de PAM sin traducción: " + t);
-    return "El directorio ha rechazado la contraseña nueva. Pruebe con otra.";
+    /* console.warn a propósito, nunca console.error: cualquier console.error
+       abre el diálogo de error_prompt.py encima de la pantalla de acceso, y un
+       texto de PAM que no esté en la tabla no es una avería. El original queda
+       registrado para poder ampliar la tabla:
+           sudo grep -i "sin traducción" /var/log/lightdm/*greeter*.log */
+    avisar("mensaje de PAM sin traducción (" + ctx + "): " + t);
+    if (ctx === CTX_CAMBIO) {
+      return { texto: GENERICO_CAMBIO, motivo: true };
+    }
+    return { texto: "", motivo: false };
   }
 
   function alMensajePam(texto) {
     if (otroDueno) {
       return;
     }
-    if (texto) {
-      ultimoMensajePam = traducirMensajePam(texto);
-      mostrarMensaje(ultimoMensajePam, "");
+    if (!texto) {
+      return;
     }
+    var ctx = modo === MODO_CAMBIO_CLAVE ? CTX_CAMBIO : CTX_ACCESO;
+    var aviso = traducirMensajePam(texto, ctx);
+    if (!aviso.texto) {
+      return; /* sin traducción en el acceso: no se pinta nada */
+    }
+    ultimoMensajePam = aviso.texto;
+    /* El motivo sólo se guarda si de verdad explica un rechazo y hay un flujo
+       en curso: un show_message que llegue después de un cancel_authentication
+       no debe quedarse pegado al siguiente intento. */
+    ultimoMotivoRechazo = aviso.motivo && modo !== MODO_INACTIVO ? aviso.texto : "";
+    /* Clase «error» sólo cuando es un rechazo del acceso: el
+       authentication_complete que viene detrás lo va a repintar igual en rojo,
+       y así no se ve el fogonazo en gris. Dentro del cambio de contraseña se
+       sigue pintando sin clase, como hasta ahora, porque ahí muchos avisos van
+       seguidos de un reintento. */
+    mostrarMensaje(aviso.texto, aviso.motivo && ctx === CTX_ACCESO ? "error" : "");
   }
 
   function alCompletar() {
@@ -924,7 +1069,15 @@
     }
 
     if (!autenticado) {
+      /* Se leen ANTES de volverAlInicio(): llama a reiniciarEstado(), que
+         borra las dos. */
+      var avisoCambio = ultimoMensajePam;
+      var motivoAcceso = ultimoMotivoRechazo;
+
       if (modo === MODO_RECUPERACION) {
+        /* La recuperación conserva su mensaje propio: es una cuenta local que
+           entra con pam_succeed_if, y un motivo del directorio aquí sólo
+           desconcertaría. */
         volverAlInicio(
           "No se ha podido abrir la recuperación de contraseña. Avise al departamento de sistemas.",
           "error"
@@ -934,12 +1087,17 @@
            muestra ese motivo en vez de un genérico que no dice nada — ver
            declaración de ultimoMensajePam. */
         volverAlInicio(
-          ultimoMensajePam ||
+          avisoCambio ||
             "No se ha podido cambiar la contraseña. Vuelva a iniciar sesión e inténtelo de nuevo.",
           "error"
         );
       } else {
-        volverAlInicio("Usuario o contraseña incorrectos.", "error");
+        /* Si el directorio ha dicho POR QUÉ —cuenta bloqueada, desactivada,
+           expirada, contraseña caducada— se dice eso: reintentar la contraseña
+           no arregla nada de eso, y el usuario sólo consigue agotar más
+           intentos. Si no ha dicho nada, o ha dicho algo ambiguo como
+           «Permission denied», queda el genérico de siempre. */
+        volverAlInicio(motivoAcceso || GENERICO_ACCESO, "error");
       }
       return;
     }
@@ -1142,10 +1300,13 @@
     }
   }
 
-  /* Comprueba una contraseña candidata contra la longitud mínima vigente y
-     las reglas de complejidad. Devuelve un objeto {id: cumplido, ...} más
-     "longitud" y "todo" (true sólo si se cumple absolutamente todo). */
-  function evaluarRequisitosClave(valor) {
+  /* Comprueba la contraseña candidata contra TODO lo que se puede saber sin
+     preguntar al directorio: la longitud mínima vigente, las reglas de
+     complejidad, que no sea igual a la actual y que las dos casillas
+     coincidan. Devuelve {id: cumplido, ...} más "longitud", "distinta",
+     "coincide" y "todo" (true sólo si se cumple absolutamente todo), que es
+     lo que habilita el botón «Cambiar contraseña». */
+  function evaluarRequisitosClave(valor, repite) {
     var resultado = { longitud: valor.length >= longitudMinimaClave };
     var todo = resultado.longitud;
     for (var i = 0; i < REQUISITOS_COMPLEJIDAD.length; i++) {
@@ -1154,20 +1315,32 @@
       resultado[r.id] = cumplido;
       todo = todo && cumplido;
     }
-    resultado.todo = todo;
+
+    /* Igual a la actual: el directorio la rechazaría de todas formas, así que
+       se pide aquí. Si no se conoce la actual —no debería pasar en este
+       flujo—, no se puede comparar y se da por cumplido. */
+    resultado.distinta = !clave || valor !== clave;
+
+    /* Coinciden: con las dos vacías NO se da por cumplido, que si no el botón
+       se habilitaría con el formulario en blanco. */
+    resultado.coincide = !!valor && valor === repite;
+
+    resultado.todo = todo && resultado.distinta && resultado.coincide;
     return resultado;
   }
 
-  /* Repinta la lista de requisitos según lo que haya escrito en «Contraseña
-     nueva» y bloquea «Cambiar contraseña» hasta que se cumplan todos. Se
-     llama al escribir, al mostrar el formulario y cuando
+  /* Repinta las listas de requisitos según lo escrito en «Contraseña nueva» y
+     en «Repita la contraseña nueva», y deja «Cambiar contraseña»
+     deshabilitado hasta que se cumplan TODOS. Se llama al escribir en
+     cualquiera de las dos casillas, al mostrar el formulario y cuando
      cargarRequisitosClaveRemotos() actualiza la longitud mínima. */
   function actualizarRequisitosClave() {
     if (!d.listaRequisitos) {
       return;
     }
     var valor = d.entradaNuevaClave ? d.entradaNuevaClave.value : "";
-    var resultado = evaluarRequisitosClave(valor);
+    var repite = d.entradaRepiteClave ? d.entradaRepiteClave.value : "";
+    var resultado = evaluarRequisitosClave(valor, repite);
 
     if (d.requisitoLongitud) {
       d.requisitoLongitud.textContent = "Al menos " + longitudMinimaClave + " caracteres";
@@ -1181,7 +1354,18 @@
       }
     }
 
+    if (d.requisitoDistinta) {
+      d.requisitoDistinta.className = resultado.distinta ? "cumplido" : "";
+    }
+    if (d.requisitoCoincide) {
+      d.requisitoCoincide.className = resultado.coincide ? "cumplido" : "";
+    }
+
     if (d.confirmarCambioClave) {
+      /* Deshabilitado mientras falte algo. Con el botón por defecto del
+         formulario deshabilitado, el Enter tampoco envía nada: el navegador no
+         ejecuta la activación de un botón deshabilitado. Igual que en el
+         formulario de acceso. */
       d.confirmarCambioClave.disabled = !resultado.todo;
     }
   }
@@ -1263,6 +1447,15 @@
          rechazar por ser igual a la actual, así que se avisa aquí mismo en
          vez de hacer un viaje entero a PAM para acabar en lo mismo. */
       mostrarMensaje("La contraseña nueva no puede ser igual a la actual.", "error");
+      return;
+    }
+    /* Cinturón de más: con el botón deshabilitado hasta que se cumple todo,
+       aquí no se debería llegar con requisitos sin cumplir. Si se llegara —un
+       envío del formulario por otra vía—, no se molesta al directorio para
+       que rechace algo que ya sabemos que no vale. */
+    if (!evaluarRequisitosClave(nueva, repite).todo) {
+      mostrarMensaje("La contraseña nueva no cumple los requisitos.", "error");
+      actualizarRequisitosClave();
       return;
     }
 
@@ -1354,6 +1547,12 @@
     }
     if (d.entradaNuevaClave) {
       d.entradaNuevaClave.addEventListener(
+        "input",
+        seguro(actualizarRequisitosClave, "requisitos de la contraseña")
+      );
+    }
+    if (d.entradaRepiteClave) {
+      d.entradaRepiteClave.addEventListener(
         "input",
         seguro(actualizarRequisitosClave, "requisitos de la contraseña")
       );
@@ -1500,6 +1699,8 @@
     d.requisitoMinuscula = nodo("requisito-minuscula");
     d.requisitoNumero = nodo("requisito-numero");
     d.requisitoSimbolo = nodo("requisito-simbolo");
+    d.requisitoDistinta = nodo("requisito-distinta");
+    d.requisitoCoincide = nodo("requisito-coincide");
     d.zonaSesion = nodo("zona-sesion");
     d.listaSesiones = nodo("lista-sesiones");
     d.apagar = nodo("apagar");

@@ -40,7 +40,7 @@
 
 class recoverpass_greeter (
   # Versión del paquete que hay en files/
-  String  $version           = '0.0.7',
+  String  $version           = '0.0.8',
 
   # Distribuir /etc/recoverpass/recoverpass.conf desde este módulo
   Boolean $gestionar_config  = true,

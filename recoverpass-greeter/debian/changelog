@@ -1,3 +1,36 @@
+recoverpass-greeter (0.0.8) noble; urgency=medium
+
+  * Cuando el directorio rechaza el acceso y PAM explica por qué, la pantalla
+    lo dice en vez del genérico «Usuario o contraseña incorrectos»: cuenta
+    bloqueada, desactivada, expirada y contraseña caducada. Reintentar la
+    contraseña no arregla ninguna de esas cosas, así que el aviso genérico
+    sólo conseguía que el usuario agotara más intentos. El motivo ya llegaba
+    al tema por show_message; lo que faltaba era usarlo: la rama de acceso de
+    alCompletar() lo descartaba.
+  * Sólo se traducen literales inequívocos. «Permission denied» y compañía
+    pueden venir de cualquier sitio —contraseña mal escrita incluida— y caen
+    a propósito en el genérico: acusar de bloqueo a quien se ha equivocado de
+    contraseña sería peor que no decir nada.
+  * La tabla de traducciones pasa a tener contexto (acceso o cambio de
+    contraseña). Eso arregla además un defecto: un aviso desconocido durante
+    un acceso normal se pintaba con el texto de reserva del cambio de
+    contraseña, «El directorio ha rechazado la contraseña nueva», que no
+    tenía nada que ver. Ahora en el acceso un texto desconocido no se pinta,
+    sólo se registra.
+  * Nuevo parámetro LOCKED_ACCOUNT_HELP en recoverpass.conf, para que cada
+    centro ponga su extensión o su correo al final de esos avisos.
+  * Escenarios nuevos del simulado (?rechazo=bloqueada, desactivada,
+    expirada, caducada, avisocaducidad y desconocido) para verlos sin LDAP.
+  * En el formulario de contraseña nueva, «Cambiar contraseña» está
+    deshabilitado hasta que los dos campos están rellenos y se cumple todo:
+    longitud, complejidad, distinta de la actual y las dos iguales. Antes sólo
+    miraba la primera casilla, así que se podía pulsar con la repetición vacía
+    o distinta para acabar en un aviso de error. Dos requisitos nuevos en la
+    lista —«distinta de la actual» y «las dos contraseñas coinciden»— para que
+    el botón nunca esté deshabilitado sin explicación.
+
+ -- Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>  Thu, 03 Sep 2026 09:48:51 +0200
+
 recoverpass-greeter (0.0.7) noble; urgency=medium
 
   * La pantalla de acceso fuerza el modo duplicado: la misma imagen en todas

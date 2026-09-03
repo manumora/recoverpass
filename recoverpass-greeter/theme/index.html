@@ -121,6 +121,7 @@
               <li id="requisito-minuscula">Una letra minúscula</li>
               <li id="requisito-numero">Un número</li>
               <li id="requisito-simbolo">Un carácter especial</li>
+              <li id="requisito-distinta">Distinta de la actual</li>
             </ul>
           </div>
 
@@ -133,6 +134,12 @@
               autocomplete="new-password"
               spellcheck="false"
             />
+            <!-- «Cambiar contraseña» está deshabilitado mientras quede algo en
+                 rojo, aquí o en la lista de arriba: así el botón nunca engaña
+                 y no hace falta enviar el formulario para saber qué falta. -->
+            <ul id="requisitos-repite" class="requisitos-clave" aria-live="polite">
+              <li id="requisito-coincide">Las dos contraseñas coinciden</li>
+            </ul>
           </div>
 
           <button id="confirmar-cambio-clave" type="submit" class="boton-primario">

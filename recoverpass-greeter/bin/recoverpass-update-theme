@@ -30,6 +30,7 @@ SHOW_RESTART="true"
 SHOW_SHUTDOWN="true"
 SHOW_SESSION="true"
 CENTER_NAME="IES Santa Eulalia"
+LOCKED_ACCOUNT_HELP="Avise al departamento de sistemas."
 TIMEZONE="Europe/Madrid"
 PASSWORD_REQUIREMENTS_URL=""
 PASSWORD_MIN_LENGTH_DEFAULT=8
@@ -60,6 +61,18 @@ if ! printf '%s' "$PASSWORD_MIN_LENGTH_DEFAULT" | grep -Eq '^[0-9]+$' \
     || [ "$PASSWORD_MIN_LENGTH_DEFAULT" -lt 1 ]; then
     aviso "PASSWORD_MIN_LENGTH_DEFAULT no es un entero positivo: «$PASSWORD_MIN_LENGTH_DEFAULT»"
     exit 1
+fi
+
+# El texto de ayuda acaba en un literal JavaScript de UNA línea: un salto de
+# línea dentro rompería config.js y con él la pantalla de acceso. Se quita en
+# silencio, que abortar por esto sería peor remedio que la enfermedad.
+LOCKED_ACCOUNT_HELP=$(printf '%s' "$LOCKED_ACCOUNT_HELP" | tr -d '\n\r')
+
+# Cabe en el hueco de mensajes; más largo se ve a varias líneas pero no rompe
+# nada, así que se avisa y se sigue.
+if [ "${#LOCKED_ACCOUNT_HELP}" -gt 120 ]; then
+    aviso "ATENCIÓN: LOCKED_ACCOUNT_HELP es muy largo (${#LOCKED_ACCOUNT_HELP} caracteres)."
+    aviso "  El aviso de cuenta bloqueada puede verse a varias líneas."
 fi
 
 if [ -n "$BACKGROUND_IMAGE" ] && [ ! -r "$BACKGROUND_IMAGE" ]; then
@@ -108,6 +121,7 @@ window.RECOVERPASS_CONFIG = {
   mostrarApagar: $(booleano "$SHOW_SHUTDOWN"),
   mostrarSesion: $(booleano "$SHOW_SESSION"),
   nombreCentro: "$(escapar_js "$CENTER_NAME")",
+  ayudaCuentaBloqueada: "$(escapar_js "$LOCKED_ACCOUNT_HELP")",
   zonaHoraria: "$(escapar_js "$TIMEZONE")",
   urlRequisitosClave: "$(escapar_js "$PASSWORD_REQUIREMENTS_URL")",
   longitudMinimaClave: $PASSWORD_MIN_LENGTH_DEFAULT
@@ -140,6 +154,7 @@ echo "  primario: $PRIMARY_COLOR   secundario: $SECONDARY_COLOR"
 echo "  suspender: $(booleano "$SHOW_SUSPEND")  reiniciar: $(booleano "$SHOW_RESTART")  apagar: $(booleano "$SHOW_SHUTDOWN")"
 echo "  selector de sesión: $(booleano "$SHOW_SESSION")"
 echo "  centro: ${CENTER_NAME:-(sin nombre)}"
+echo "  ayuda de cuenta bloqueada: ${LOCKED_ACCOUNT_HELP:-(ninguna)}"
 echo "  zona horaria: $TIMEZONE"
 echo "  requisitos de contraseña: mínimo $PASSWORD_MIN_LENGTH_DEFAULT caracteres (de reserva)"
 echo "    URL de consulta: ${PASSWORD_REQUIREMENTS_URL:-(ninguna, se usa siempre el de reserva)}"

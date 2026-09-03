@@ -81,6 +81,28 @@ Configuración real:
       «prompt inesperado estando parados: password».
 - [ ] Con la contraseña equivocada aparece «Usuario o contraseña incorrectos.»,
       el formulario se desbloquea y **se puede reintentar sin reiniciar nada**.
+- [ ] **Con una cuenta bloqueada** en el directorio (`pwdAccountLockedTime`
+      puesto, o agotando `pwdMaxFailure` si la política tiene `pwdLockout`),
+      aparece «La cuenta está bloqueada…» con la coletilla de
+      `LOCKED_ACCOUNT_HELP` — también escribiendo la contraseña **correcta**.
+- [ ] Con una cuenta **sana** y la contraseña simplemente equivocada sigue
+      apareciendo «Usuario o contraseña incorrectos.» Esta comprobación es la
+      importante: protege de acusar de bloqueo a quien sólo se ha equivocado.
+- [ ] Con la contraseña caducada (sin `pwdMustChange`) aparece el aviso de
+      contraseña caducada, **sin** la coletilla de ayuda.
+- [ ] Cambiar `LOCKED_ACCOUNT_HELP`, ejecutar `sudo recoverpass-update-theme` y
+      ver el texto nuevo en el aviso.
+- [ ] Anotar el literal EXACTO que manda PAM en cada caso, aunque el aviso haya
+      salido bien. Se ve con `sudo pamtester lightdm USUARIO authenticate` (usa
+      la misma pila que la pantalla de acceso), en
+      `/var/log/lightdm/lightdm.log`, o —si no encajó en la tabla— con
+      `sudo grep -i "sin traducción" /var/log/lightdm/*greeter*.log`.
+- [ ] En el formulario de contraseña nueva, **«Cambiar contraseña» está
+      deshabilitado** hasta que los dos campos están rellenos y todos los
+      requisitos en verde: longitud, complejidad, distinta de la actual y las
+      dos iguales. Con el botón deshabilitado, el Enter no envía nada.
+- [ ] Al fallar un requisito, el que falla se ve en rojo: no hay que enviar el
+      formulario para saber qué falta.
 - [ ] Se puede recorrer toda la pantalla sólo con el tabulador y el foco se ve
       siempre.
 - [ ] El selector de sesión cambia la sesión que arranca.

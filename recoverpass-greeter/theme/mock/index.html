@@ -120,6 +120,46 @@
         </li>
       </ul>
 
+      <h2>La cuenta rechazada por el directorio</h2>
+
+      <p>
+        PAM manda el motivo del rechazo por <code>show_message</code>, en
+        inglés. Estos escenarios reproducen los literales que manda de verdad
+        para que se vea el aviso en castellano sin necesidad de un LDAP. En el
+        árbol de fuentes no hay <code>config.js</code>, así que la coletilla de
+        ayuda que se ve es la de reserva del propio tema.
+      </p>
+
+      <ul>
+        <li>
+          <a href="../index.html?rechazo=bloqueada">Cuenta bloqueada</a> —
+          <code>Account is locked</code>. Debe salir el aviso de cuenta
+          bloqueada con la coletilla de ayuda, en rojo.
+        </li>
+        <li>
+          <a href="../index.html?rechazo=desactivada">Cuenta desactivada</a> y
+          <a href="../index.html?rechazo=expirada">cuenta expirada</a> — su
+          aviso, también con coletilla.
+        </li>
+        <li>
+          <a href="../index.html?rechazo=caducada">Contraseña caducada</a> —
+          <code>Password has expired</code>. Aviso <strong>sin</strong>
+          coletilla: esto tiene arreglo por sí mismo.
+        </li>
+        <li>
+          <a href="../index.html?rechazo=avisocaducidad">Caducará pronto</a> —
+          es informativo: se avisa <strong>sin</strong> marcarlo como error y la
+          sesión arranca igualmente.
+        </li>
+        <li>
+          <a href="../index.html?rechazo=desconocido">Motivo ambiguo</a> —
+          <code>Permission denied</code>, que puede venir de cualquier sitio.
+          El tema <strong>no</strong> debe adivinar nada: tiene que salir
+          «Usuario o contraseña incorrectos.» Es la prueba que impide acusar de
+          bloqueo a quien sólo se ha equivocado de contraseña.
+        </li>
+      </ul>
+
       <h2>Pantalla duplicada (dos ventanas)</h2>
 
       <p>

@@ -19,6 +19,14 @@
  *   ?fallo=sesion          start_session devuelve false
  *   ?silencio=1            LightDM no contesta nunca (prueba del vigilante)
  *   ?usuarios=0            sin lista de usuarios (hide_users_hint)
+ *   ?rechazo=X             el directorio rechaza el acceso y PAM explica por
+ *                          qué, con el literal inglés que manda de verdad.
+ *                          Valores: bloqueada, desactivada, expirada,
+ *                          caducada, avisocaducidad y desconocido. El último
+ *                          manda «Permission denied», que es ambiguo: el tema
+ *                          NO debe adivinar nada y tiene que salir el genérico
+ *                          «Usuario o contraseña incorrectos.». Manda sobre
+ *                          ?debecambiar=1.
  *   ?debecambiar=1         tras la contraseña correcta, PAM exige cambiarla
  *                          (pwdReset+pwdMustChange): pide «nueva» y «repite»
  *                          como preguntas secretas adicionales, igual que
@@ -72,7 +80,23 @@
     fallo: parametro("fallo") || "",
     silencio: parametro("silencio") === "1",
     conUsuarios: parametro("usuarios") !== "0",
-    debeCambiar: parametro("debecambiar") === "1"
+    debeCambiar: parametro("debecambiar") === "1",
+    rechazo: parametro("rechazo") || ""
+  };
+
+  /* Motivos que el directorio da para rechazar el acceso, con el literal EN
+     INGLÉS tal y como lo manda PAM por show_message. Los de ppolicy salen de
+     ldap_passwordpolicy_err2txt() de OpenLDAP, la misma función de la que
+     salió el «Password is in history of old passwords» comprobado en un equipo
+     real. «desconocido» está a propósito: es el caso en el que el tema NO debe
+     adivinar el motivo. */
+  var MOTIVOS_RECHAZO = {
+    bloqueada: "Account is locked",
+    desactivada: "Account is disabled",
+    expirada: "Your account has expired; please contact your system administrator",
+    caducada: "Password has expired",
+    avisocaducidad: "Your password will expire in 7 days.",
+    desconocido: "Permission denied."
   };
 
   function Senal(nombre) {
@@ -227,6 +251,25 @@
     if (this.authentication_user === null) {
       this.authentication_user = respuesta;
       this.show_prompt._emitir("Contraseña: ", 1);
+      return;
+    }
+
+    /* ?rechazo=...: el acceso se rechaza aunque la contraseña sea la buena,
+       porque una cuenta bloqueada no entra ni escribiéndola bien. Primero
+       llega el show_message con el texto en inglés y después el
+       authentication_complete, que es el orden real. La excepción es
+       «avisocaducidad», que es informativo: ahí la sesión sí arranca. */
+    if (opciones.rechazo && MOTIVOS_RECHAZO[opciones.rechazo]) {
+      var textoMotivo = MOTIVOS_RECHAZO[opciones.rechazo];
+      var entra = opciones.rechazo === "avisocaducidad" && respuesta === CLAVE_BUENA;
+      window.setTimeout(function () {
+        self.show_message._emitir(textoMotivo, 1);
+        window.setTimeout(function () {
+          self.in_authentication = false;
+          self.is_authenticated = entra;
+          self.authentication_complete._emitir();
+        }, RETRASO);
+      }, RETRASO);
       return;
     }
 
