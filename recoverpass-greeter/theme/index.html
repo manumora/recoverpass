@@ -239,6 +239,12 @@
          teclado si algo se queda a medias. -->
     <button id="cubierta" type="button" hidden>
       <span id="cubierta-texto"></span>
+      <!-- Se muestra sola si la operación tarda demasiado: la cubierta tapa
+           toda la pantalla y sin esto no hay forma de saber que se puede
+           salir. Ver mostrarCubierta() en js/greeter.js. -->
+      <span id="cubierta-pista" hidden>
+        Si no avanza, pulse Escape o haga clic para volver a la pantalla de acceso.
+      </span>
     </button>
 
     <!-- Objeto lightdm simulado: sólo se activa si NO estamos dentro del

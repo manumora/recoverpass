@@ -461,8 +461,10 @@ input {
   inset: 0;
   z-index: 10;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1.25rem;
   width: 100%;
   height: 100%;
   padding: 2rem;
@@ -471,6 +473,12 @@ input {
   color: var(--texto);
   font-size: 1.125rem;
   text-align: center;
+}
+
+#cubierta-pista {
+  max-width: 28rem;
+  color: var(--texto-tenue);
+  font-size: 0.875rem;
 }
 
 /* --- Pantallas pequeñas -------------------------------------------------- */

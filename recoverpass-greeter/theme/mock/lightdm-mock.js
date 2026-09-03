@@ -18,6 +18,10 @@
  *   ?fallo=recuperacion    la autenticación de recoverpass falla
  *   ?fallo=sesion          start_session devuelve false
  *   ?silencio=1            LightDM no contesta nunca (prueba del vigilante)
+ *   ?silencio=cambio       contesta el acceso, pero se queda mudo en cuanto
+ *                          se envía la contraseña nueva: prueba el tope de
+ *                          la cubierta, para que la pantalla no se quede
+ *                          tapada para siempre. Con ?debecambiar=1.
  *   ?usuarios=0            sin lista de usuarios (hide_users_hint)
  *   ?rechazo=X             el directorio rechaza el acceso y PAM explica por
  *                          qué, con el literal inglés que manda de verdad.
@@ -79,6 +83,7 @@
     prompt: parametro("prompt") === "1",
     fallo: parametro("fallo") || "",
     silencio: parametro("silencio") === "1",
+    silencioTrasCambio: parametro("silencio") === "cambio",
     conUsuarios: parametro("usuarios") !== "0",
     debeCambiar: parametro("debecambiar") === "1",
     rechazo: parametro("rechazo") || ""
@@ -338,6 +343,9 @@
     }
 
     /* this._pasoCambio === "repite" */
+    if (opciones.silencioTrasCambio) {
+      return; /* mudo a partir de aquí: debe salvarlo el tope de la cubierta */
+    }
     var coincide = respuesta === this._nuevaClave;
     /* «Prohibida9$» simula un rechazo (política de calidad) que sí vuelve a
        preguntar, como pam_pwquality/pam_unix. «Repetida9$» simula que está

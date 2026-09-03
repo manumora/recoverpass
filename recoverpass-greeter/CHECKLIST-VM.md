@@ -103,6 +103,13 @@ Configuración real:
       dos iguales. Con el botón deshabilitado, el Enter no envía nada.
 - [ ] Al fallar un requisito, el que falla se ve en rojo: no hay que enviar el
       formulario para saber qué falta.
+- [ ] Tras pulsar «Cambiar contraseña» aparece la pantalla «Cambiando la
+      contraseña…» y **nunca se queda ahí**: o avanza, o a los 8 s ofrece la
+      salida, o a los 45 s vuelve sola a la pantalla de acceso con un aviso.
+- [ ] Con esa pantalla puesta, **Escape** la cierra y devuelve el formulario de
+      acceso. También el ratón y el Intro.
+- [ ] Si el directorio rechaza la contraseña nueva y PAM vuelve a preguntar, el
+      formulario reaparece **por delante**, no detrás de la pantalla tapada.
 - [ ] Se puede recorrer toda la pantalla sólo con el tabulador y el foco se ve
       siempre.
 - [ ] El selector de sesión cambia la sesión que arranca.

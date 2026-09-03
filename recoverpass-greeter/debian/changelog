@@ -21,6 +21,21 @@ recoverpass-greeter (0.0.8) noble; urgency=medium
     centro ponga su extensión o su correo al final de esos avisos.
   * Escenarios nuevos del simulado (?rechazo=bloqueada, desactivada,
     expirada, caducada, avisocaducidad y desconocido) para verlos sin LDAP.
+  * La pantalla «Cambiando la contraseña…» ya no puede quedarse puesta. Tapa el
+    escritorio entero y había tres caminos que la dejaban así sin ningún
+    vigilante en marcha: la repregunta por la contraseña actual respondía sin
+    rearmarlo; el formulario reaparecía DETRÁS de ella cuando el directorio
+    rechazaba la contraseña nueva y PAM volvía a preguntar; y el apagado o el
+    reinicio nunca armaron ninguno. Ahora la cubierta arma sus propios relojes
+    al mostrarse, al margen de los pasos del flujo: a los 8 s ofrece la salida
+    por pantalla y a los 45 s se retira sola y vuelve a la pantalla de acceso,
+    dejando el motivo en el log del greeter.
+  * La cubierta se cierra también con Escape, que es lo que se intenta cuando
+    una pantalla se queda tapada; hasta ahora sólo respondía al ratón y al
+    Intro, y no lo decía en ningún sitio.
+  * El formulario de contraseña nueva retira la cubierta antes de aparecer, y
+    ya no se descubre la pantalla en mitad del cambio: antes quedaba un hueco
+    sin formulario y sin cubierta hasta que contestaba PAM.
   * En el formulario de contraseña nueva, «Cambiar contraseña» está
     deshabilitado hasta que los dos campos están rellenos y se cumple todo:
     longitud, complejidad, distinta de la actual y las dos iguales. Antes sólo

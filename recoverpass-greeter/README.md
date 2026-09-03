@@ -485,6 +485,14 @@ Está en `/usr/share/web-greeter/themes/recoverpass/`.
   llegara a cargarse.
 - Sintaxis conservadora (nada de `?.`, `??` ni `async`), arranque en `try/catch`
   y modo degradado si algo falla: nunca una pantalla muerta.
+- **La cubierta no puede quedarse puesta.** La pantalla de «Cambiando la
+  contraseña…» o «Iniciando sesión…» tapa el escritorio entero, así que arma
+  sus propios relojes al mostrarse, al margen de los vigilantes de cada paso: a
+  los 8 s ofrece la salida por pantalla («pulse Escape o haga clic») y a los
+  45 s se retira sola y vuelve a la pantalla de acceso, dejando el motivo en el
+  log del greeter. Se cierra con el ratón, con Intro y con **Escape**. Y el
+  formulario de contraseña nueva la retira antes de aparecer, para no quedar
+  detrás de ella.
 - Cero recursos externos. Open Sans se sirve desde `fonts/`, que son enlaces
   simbólicos al paquete `fonts-open-sans`.
 - Contraste AA verificado, foco de teclado visible, navegación completa con

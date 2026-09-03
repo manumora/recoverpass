@@ -41,6 +41,19 @@
      (GreeterComm.broadcast, 60 ms). Ver «una sola ventana al mando». */
   var ESPERA_ANUNCIO_MANDO = 500;
 
+  /* Tope absoluto de la cubierta: por encima de cualquier vigilante, para que
+     una pantalla tapada NUNCA se quede así. Existe porque los vigilantes los
+     arma y desarma cada paso del flujo, y basta un camino que desarme sin
+     armar otro para dejar la pantalla en blanco con su texto y sin salida
+     (visto en un equipo real durante el cambio de contraseña). Este tope no
+     depende de ningún paso: lo arma la propia cubierta al mostrarse. */
+  var TOPE_CUBIERTA = 45000;
+
+  /* Antes del tope, a los pocos segundos, se ofrece la salida por pantalla:
+     la cubierta tapa el escritorio entero y sin esto no hay forma de saber
+     que se puede cerrar. */
+  var PISTA_CUBIERTA = 8000;
+
   /* Ningún paso puede quedarse esperando para siempre: si LightDM no
      responde, se vuelve al estado inicial con un mensaje. */
   var ESPERA_AUTENTICACION = 20000;
@@ -51,6 +64,8 @@
   var usuario = "";
   var clave = "";
   var vigilante = null;
+  var vigilanteCubierta = null;
+  var pistaCubierta = null;
   var relojId = null;
   var arrancado = false;
   var senalesConectadas = false;
@@ -242,14 +257,53 @@
       d.cubiertaTexto.textContent = texto || "";
     }
     d.cubierta.hidden = false;
+    if (d.cubiertaPista) {
+      d.cubiertaPista.hidden = true;
+    }
     try {
       d.cubierta.focus();
     } catch (e) {
       /* el foco es un detalle, no un motivo para abortar */
     }
+
+    /* Los dos relojes de la propia cubierta: la pista y el tope. Se rearman
+       en cada mostrarCubierta(), así que un cambio de texto —de «Cambiando la
+       contraseña…» a «Iniciando sesión…»— reinicia la cuenta. */
+    pararRelojesCubierta();
+    pistaCubierta = window.setTimeout(function () {
+      pistaCubierta = null;
+      if (d.cubiertaPista && d.cubierta && !d.cubierta.hidden) {
+        d.cubiertaPista.hidden = false;
+      }
+    }, PISTA_CUBIERTA);
+    vigilanteCubierta = window.setTimeout(function () {
+      vigilanteCubierta = null;
+      /* console.warn y no error: esto es la red de seguridad haciendo su
+         trabajo, no una avería del tema. Queda en el log del greeter para
+         poder averiguar qué paso se quedó a medias. */
+      avisar("la cubierta llevaba " + TOPE_CUBIERTA + " ms puesta («" +
+        (d.cubiertaTexto ? d.cubiertaTexto.textContent : "") +
+        "»): se vuelve a la pantalla de acceso");
+      volverAlInicio("El sistema no ha respondido. Inténtelo de nuevo.", "error");
+    }, TOPE_CUBIERTA);
+  }
+
+  function pararRelojesCubierta() {
+    if (pistaCubierta !== null) {
+      window.clearTimeout(pistaCubierta);
+      pistaCubierta = null;
+    }
+    if (vigilanteCubierta !== null) {
+      window.clearTimeout(vigilanteCubierta);
+      vigilanteCubierta = null;
+    }
   }
 
   function ocultarCubierta() {
+    pararRelojesCubierta();
+    if (d.cubiertaPista) {
+      d.cubiertaPista.hidden = true;
+    }
     if (d.cubierta) {
       d.cubierta.hidden = true;
     }
@@ -849,16 +903,22 @@
 
     if (/current/i.test(t)) {
       /* Repregunta por la contraseña actual: ya la tenemos de cuando el
-         usuario inició sesión, no hace falta pedírsela otra vez. */
+         usuario inició sesión, no hace falta pedírsela otra vez. Se rearma el
+         vigilante porque a partir de aquí se vuelve a esperar a PAM: sin esto,
+         si no contestara nunca, la pantalla se quedaba tapada sin salida. */
+      armarVigilante(ESPERA_AUTENTICACION, "El sistema no responde. Inténtelo de nuevo.");
       g.respond(clave);
       return;
     }
 
     if (/retype|repeat|again|confirm/i.test(t)) {
       if (pasoCambio === "repite") {
-        /* El usuario ya envió el formulario: se responde sin preguntar. */
+        /* El usuario ya envió el formulario: se responde sin preguntar. La
+           cubierta se queda puesta a propósito —el cambio sigue en marcha y su
+           texto es el que corresponde—; antes se retiraba aquí y la pantalla
+           se quedaba vacía, sin formulario y sin cubierta, hasta que
+           contestara PAM. */
         pasoCambio = null;
-        ocultarCubierta();
         armarVigilante(ESPERA_AUTENTICACION, "El sistema no responde. Inténtelo de nuevo.");
         g.respond(repiteClave);
         return;
@@ -1371,6 +1431,10 @@
   }
 
   function mostrarFormularioCambioClave() {
+    /* Lo primero: si se llega aquí con la cubierta puesta —PAM vuelve a
+       preguntar tras rechazar la contraseña nueva— el formulario aparecería
+       DETRÁS de ella y la pantalla se quedaría en blanco con su texto. */
+    ocultarCubierta();
     if (d.form) {
       d.form.hidden = true;
     }
@@ -1482,7 +1546,9 @@
            una señal show_prompt que ya no va a volver a llegar. */
         repitePendiente = false;
         pasoCambio = null;
-        ocultarCubierta();
+        /* La cubierta se queda puesta: el cambio sigue en marcha. Antes se
+           retiraba aquí y la pantalla se quedaba vacía —sin formulario, que ya
+           está oculto, y sin cubierta— hasta que contestara PAM. */
         armarVigilante(ESPERA_AUTENTICACION, "El sistema no responde. Inténtelo de nuevo.");
         ldm().respond(repiteClave);
       }
@@ -1587,12 +1653,30 @@
       return;
     }
     /* Salida de emergencia: si la cubierta se queda puesta porque algo no ha
-       respondido, se cierra con el ratón o con el teclado. */
+       respondido, se cierra con el ratón (es un botón) o con el teclado. */
     d.cubierta.addEventListener(
       "click",
       seguro(function () {
         volverAlInicio("", "");
       }, "cubierta")
+    );
+
+    /* Escape es lo que intenta la gente cuando una pantalla se queda tapada,
+       y hasta ahora no hacía nada: el botón sólo responde a Intro y a la barra
+       espaciadora. Va en el documento, en captura, porque el foco puede no
+       estar en la cubierta. */
+    document.addEventListener(
+      "keydown",
+      seguro(function (ev) {
+        if (!d.cubierta || d.cubierta.hidden) {
+          return;
+        }
+        var tecla = ev && (ev.key || ev.keyIdentifier);
+        if (tecla === "Escape" || tecla === "Esc" || (ev && ev.keyCode === 27)) {
+          volverAlInicio("", "");
+        }
+      }, "Escape sobre la cubierta"),
+      true
     );
   }
 
@@ -1709,6 +1793,7 @@
     d.hibernar = nodo("hibernar");
     d.cubierta = nodo("cubierta");
     d.cubiertaTexto = nodo("cubierta-texto");
+    d.cubiertaPista = nodo("cubierta-pista");
     d.equipo = nodo("equipo");
     d.centro = nodo("centro");
     d.confirmacion = nodo("confirmacion");
