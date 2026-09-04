@@ -1,10 +1,11 @@
 #!/bin/sh
 # postrm de recoverpass-greeter
 #
-# Deshace exactamente lo que hizo el postinst. Al desinstalar se retira el
-# bloque de PAM, las políticas del navegador y el fichero de AccountsService
-# (el drop-in del greeter ya lo quitó el prerm). Al purgar, además, se borra la
-# cuenta local.
+# Deshace exactamente lo que hizo el postinst. Al desinstalar se retiran los dos
+# bloques delimitados (el de /etc/pam.d/lightdm y el de
+# /etc/security/pwquality.conf), las políticas del navegador y el fichero de
+# AccountsService (el drop-in del greeter ya lo quitó el prerm). Al purgar,
+# además, se borra la cuenta local.
 #
 # Nada de esto se hace en «upgrade»: durante una actualización el postinst del
 # paquete nuevo vuelve a dejarlo todo en su sitio.
@@ -15,6 +16,9 @@ USUARIO=recoverpass
 PAMFILE=/etc/pam.d/lightdm
 PAM_INI='# BEGIN recoverpass-greeter'
 PAM_FIN='# END recoverpass-greeter'
+PWQFILE=/etc/security/pwquality.conf
+PWQ_INI='# BEGIN recoverpass-greeter'
+PWQ_FIN='# END recoverpass-greeter'
 DROPIN=/etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf
 AS_FILE=/var/lib/AccountsService/users/$USUARIO
 COPIAS=/var/backups/recoverpass-greeter
@@ -35,6 +39,27 @@ quitar_bloque_pam() {
         aviso "ATENCIÓN: no se ha podido retirar el bloque de $PAMFILE."
         if [ -f "$COPIAS/pam.d-lightdm.orig" ]; then
             aviso "  Hay una copia del original en $COPIAS/pam.d-lightdm.orig"
+        fi
+    fi
+    rm -f "$tmp"
+    return 0
+}
+
+# Simétrica a quitar_bloque_pam(): devuelve /etc/security/pwquality.conf a como
+# lo dejó libpwquality-common, para que dpkg -V siga saliendo limpio.
+quitar_bloque_pwquality() {
+    [ -f "$PWQFILE" ] || return 0
+    grep -qF "$PWQ_INI" "$PWQFILE" || return 0
+
+    tmp=$(mktemp)
+    sed "/^$PWQ_INI\$/,/^$PWQ_FIN\$/d" "$PWQFILE" > "$tmp"
+    if [ -s "$tmp" ] && ! grep -qF "$PWQ_INI" "$tmp"; then
+        cat "$tmp" > "$PWQFILE"     # se conservan dueño, permisos e inodo
+        echo "recoverpass-greeter: retirado el bloque de $PWQFILE."
+    else
+        aviso "ATENCIÓN: no se ha podido retirar el bloque de $PWQFILE."
+        if [ -f "$COPIAS/security-pwquality.conf.orig" ]; then
+            aviso "  Hay una copia del original en $COPIAS/security-pwquality.conf.orig"
         fi
     fi
     rm -f "$tmp"
@@ -76,6 +101,7 @@ case "$1" in
 
     rm -f "$DROPIN"
     quitar_bloque_pam
+    quitar_bloque_pwquality
     quitar_politicas
 
     # Fichero de AccountsService: si había uno anterior, se restaura.

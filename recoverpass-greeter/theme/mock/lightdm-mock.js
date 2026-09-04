@@ -66,6 +66,9 @@
 
   var RETRASO = 60;
   var CLAVE_BUENA = "demo";
+  /* «retry=3» del pam_pwquality de /etc/pam.d/common-password: al tercer
+     rechazo de la contraseña nueva, PAM_MAXTRIES y se acaba el cambio. */
+  var REINTENTOS_PAM = 3;
 
   function parametro(nombre) {
     var busqueda = window.location.search || "";
@@ -103,6 +106,43 @@
     avisocaducidad: "Your password will expire in 7 days.",
     desconocido: "Permission denied."
   };
+
+  /* Rechazos de la contraseña NUEVA que vuelven a preguntar. Son los literales
+     reales de libpwquality (pwquality_strerror) tal y como los reenvía
+     pam_pwquality, prefijados con «BAD PASSWORD: » y en inglés: comprobado en
+     un equipo del parque que no hay ningún catálogo .mo instalado, así que el
+     locale español del sistema no los traduce. La clave del objeto es la
+     contraseña que hay que escribir en el formulario para disparar cada uno.
+
+     Ojo, y es el detalle que importa: NO son contraseñas realistas y no lo
+     pueden ser. Una contraseña de verdad débil como «Colegio1» no llega nunca a
+     PAM desde este formulario, porque le falta un símbolo y el tema no deja
+     enviarla... y ahí está justo el fallo que se está arreglando: el semáforo
+     verde del tema y cracklib no juzgan lo mismo. Todas las de aquí cumplen los
+     cuatro requisitos del tema y pasan de ocho caracteres, que es lo único que
+     les permite llegar hasta PAM y ejercitar cada fila de
+     TRADUCCIONES_MENSAJE_PAM. */
+  var RECHAZOS_CAMBIO = {
+    "Prohibida9$":
+      "BAD PASSWORD: The password fails the dictionary check - it is based on a dictionary word",
+    "Cortita9$": "BAD PASSWORD: The password is shorter than 12 characters",
+    "Igualita9$": "BAD PASSWORD: The password is the same as the old one",
+    "Parecida9$": "BAD PASSWORD: The password is too similar to the old one",
+    "Usuario9$": "BAD PASSWORD: The password contains the user name in some form",
+    "Simplona9$":
+      "BAD PASSWORD: The password fails the dictionary check - it is too simplistic/systematic",
+    "Monotona9$":
+      "BAD PASSWORD: The password contains too long of a monotonic character sequence",
+    "Palindroma9$": "BAD PASSWORD: The password is a palindrome",
+    "Digitos9$": "BAD PASSWORD: The password contains less than 1 digits",
+    "Clases9$": "BAD PASSWORD: The password contains less than 3 character classes",
+    "Vetadas9$": "BAD PASSWORD: The password contains forbidden words in some form",
+    /* Ésta no encaja con ninguna fila concreta: ejercita la de último recurso y
+       la línea «mensaje de pam_pwquality sin fila propia» del log. */
+    "Desconocida9$": "BAD PASSWORD: some reason nobody has seen yet"
+  };
+
+
 
   function Senal(nombre) {
     this._nombre = nombre;
@@ -166,6 +206,7 @@
     this._pasoCambio = null;
     this._claveActual = "";
     this._nuevaClave = "";
+    this._rechazosCambio = 0;
 
     this.can_shutdown = true;
     this.can_restart = true;
@@ -267,8 +308,13 @@
     if (opciones.rechazo && MOTIVOS_RECHAZO[opciones.rechazo]) {
       var textoMotivo = MOTIVOS_RECHAZO[opciones.rechazo];
       var entra = opciones.rechazo === "avisocaducidad" && respuesta === CLAVE_BUENA;
+      /* El aviso de caducidad PRÓXIMA es informativo (tipo 0): acompaña a un
+         acceso que sigue adelante. Los demás son rechazos (tipo 1). Es la
+         distinción que alMensajePam() usa para no pintar en rojo un aviso ni
+         guardarlo como motivo del intento. */
+      var tipoMotivo = opciones.rechazo === "avisocaducidad" ? 0 : 1;
       window.setTimeout(function () {
-        self.show_message._emitir(textoMotivo, 1);
+        self.show_message._emitir(textoMotivo, tipoMotivo);
         window.setTimeout(function () {
           self.in_authentication = false;
           self.is_authenticated = entra;
@@ -309,7 +355,9 @@
       this._claveActual = respuesta;
       this._pasoCambio = "actual";
       window.setTimeout(function () {
-        self.show_message._emitir("Password expired. Change your password now.", 1);
+        /* Tipo 0: pam_sss lo manda con pam_info(), es un aviso y no un
+           rechazo. Ver alMensajePam() en greeter.js. */
+        self.show_message._emitir("Password expired. Change your password now.", 0);
         window.setTimeout(function () {
           self.show_prompt._emitir("Current Password: ", 1);
         }, RETRASO);
@@ -347,16 +395,17 @@
       return; /* mudo a partir de aquí: debe salvarlo el tope de la cubierta */
     }
     var coincide = respuesta === this._nuevaClave;
-    /* «Prohibida9$» simula un rechazo (política de calidad) que sí vuelve a
-       preguntar, como pam_pwquality/pam_unix. «Repetida9$» simula que está
-       en pwdHistory: comprobado en un equipo real que ESE rechazo no vuelve
-       a preguntar — cierra la autenticación entera con un aviso, ver más
-       abajo. El greeter no puede adivinar ninguno de los dos de antemano
-       como sí hace con «igual a la actual». */
+    /* Las contraseñas de RECHAZOS_CAMBIO simulan un rechazo de pam_pwquality
+       que sí vuelve a preguntar. «Repetida9$» simula que está en pwdHistory:
+       comprobado en un equipo real que ESE rechazo no vuelve a preguntar —
+       cierra la autenticación entera con un aviso, ver más abajo. El greeter no
+       puede adivinar ninguno de los dos de antemano como sí hace con «igual a
+       la actual». */
+    var rechazo = RECHAZOS_CAMBIO[this._nuevaClave];
     var esNueva =
       this._nuevaClave !== this._claveActual &&
       this._nuevaClave !== "" &&
-      this._nuevaClave !== "Prohibida9$" &&
+      !rechazo &&
       this._nuevaClave !== "Repetida9$";
     this._pasoCambio = null;
 
@@ -389,10 +438,36 @@
 
     /* Rechazo: PAM avisa del motivo y vuelve a preguntar, igual que
        pam_pwquality/pam_unix con reintentos — no tumba la autenticación
-       entera por una contraseña nueva inválida. */
-    var motivo = !esNueva
-      ? "BAD PASSWORD: la contraseña nueva no puede ser igual a la actual."
-      : "Las dos contraseñas no coinciden.";
+       entera por una contraseña nueva inválida.
+
+       Pero sólo hasta el tercero. pam_pwquality lleva «retry=3» en
+       common-password, y al agotarlos devuelve PAM_MAXTRIES y se acaba el
+       cambio entero: es exactamente lo que pasó en d-jefaturabach, donde
+       lightdm.log registró «Authentication complete with return value 11: Have
+       exhausted maximum number of retries for service». Reproducirlo aquí es la
+       única forma de ver el incidente completo sin un LDAP delante. */
+    var motivo;
+    if (rechazo) {
+      motivo = rechazo;
+    } else if (!esNueva) {
+      motivo = "BAD PASSWORD: The password is the same as the old one";
+    } else {
+      motivo = "Sorry, passwords do not match.";
+    }
+    this._rechazosCambio = (this._rechazosCambio || 0) + 1;
+    if (this._rechazosCambio >= REINTENTOS_PAM) {
+      /* PAM_MAXTRIES: manda el motivo del último rechazo y cierra sin volver a
+         preguntar, igual que en el log del equipo real. */
+      window.setTimeout(function () {
+        self.show_message._emitir(motivo, 1);
+        window.setTimeout(function () {
+          self.in_authentication = false;
+          self.is_authenticated = false;
+          self.authentication_complete._emitir();
+        }, RETRASO);
+      }, RETRASO);
+      return;
+    }
     this._pasoCambio = "nueva";
     window.setTimeout(function () {
       self.show_message._emitir(motivo, 1);
@@ -410,6 +485,7 @@
     this._pasoCambio = null;
     this._claveActual = "";
     this._nuevaClave = "";
+    this._rechazosCambio = 0;
     this.authentication_complete._emitir();
   };
 

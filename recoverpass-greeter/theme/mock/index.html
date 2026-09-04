@@ -116,13 +116,52 @@
           pregunta secreta adicional (pwdReset+pwdMustChange); debe aparecer
           el formulario de «Contraseña nueva»/«Repita», con la lista de
           requisitos de longitud y complejidad actualizándose al escribir.
-          Escriba <code>Prohibida9$</code> como nueva para probar el aviso +
-          reintento (rechazo de calidad, PAM vuelve a preguntar); escriba
-          <code>Repetida9$</code> para probar un rechazo por historial de
-          contraseñas (PAM no vuelve a preguntar, cierra la autenticación
-          con el motivo — debe verse ESE motivo, no un mensaje genérico). El
-          greeter ya bloquea antes de enviarla si es igual a <code>demo</code>
-          o si las dos no coinciden.
+          El greeter ya bloquea antes de enviarla si es igual a
+          <code>demo</code> o si las dos no coinciden.
+        </li>
+        <li>
+          <strong>Rechazos de la contraseña nueva.</strong> Estas contraseñas
+          disparan cada uno de los motivos que manda <code>pam_pwquality</code>
+          con su literal real en inglés. En todas debe verse el aviso en
+          castellano <em>en rojo</em>, y el formulario debe reaparecer por
+          delante, nunca una pantalla en blanco:
+          <ul>
+            <li><code>Prohibida9$</code> — palabra del diccionario</li>
+            <li><code>Cortita9$</code> — demasiado corta</li>
+            <li><code>Igualita9$</code> — igual a la actual, dicho por el
+              sistema (el caso en el que el greeter no lo puede saber de
+              antemano, porque no coincide con la del acceso)</li>
+            <li><code>Parecida9$</code> — se parece demasiado a la anterior</li>
+            <li><code>Usuario9$</code> — contiene el nombre de usuario</li>
+            <li><code>Simplona9$</code> — patrón previsible</li>
+            <li><code>Monotona9$</code> — repite los mismos caracteres</li>
+            <li><code>Palindroma9$</code> — se lee igual del revés</li>
+            <li><code>Digitos9$</code> — sin números</li>
+            <li><code>Clases9$</code> — le faltan clases de carácter</li>
+            <li><code>Vetadas9$</code> — palabra vetada por el equipo</li>
+            <li><code>Desconocida9$</code> — literal que no tiene fila propia:
+              debe salir el aviso de último recurso («demasiado fácil de
+              adivinar») y, en la consola, una línea
+              <code>mensaje de pam_pwquality sin fila propia:</code> con el
+              texto íntegro</li>
+          </ul>
+          Ninguna de ellas es una contraseña realista, y no puede serlo: una
+          débil de verdad como <code>Colegio1</code> no llega a PAM porque el
+          propio tema no la deja enviar por falta de símbolo. Ahí está el fallo
+          que se arregló: el semáforo verde del tema y cracklib no juzgan lo
+          mismo.
+        </li>
+        <li>
+          <strong>Se agotan los reintentos.</strong> Repita tres veces
+          cualquiera de las de arriba: al tercer rechazo, PAM devuelve
+          <code>PAM_MAXTRIES</code> y cierra la autenticación, igual que en el
+          incidente de <code>d-jefaturabach</code>. Debe verse el motivo del
+          último rechazo en rojo, y volverse al formulario de acceso.
+        </li>
+        <li>
+          Escriba <code>Repetida9$</code> para probar un rechazo por historial
+          de contraseñas: PAM no vuelve a preguntar, cierra la autenticación
+          con el motivo, y debe verse ESE motivo y no un mensaje genérico.
         </li>
       </ul>
 
@@ -154,8 +193,9 @@
         </li>
         <li>
           <a href="../index.html?rechazo=avisocaducidad">Caducará pronto</a> —
-          es informativo: se avisa <strong>sin</strong> marcarlo como error y la
-          sesión arranca igualmente.
+          llega con tipo informativo (0) y no de error: se avisa
+          <strong>sin</strong> pintarlo en rojo, no debe quedarse como el
+          mensaje final del intento y la sesión arranca igualmente.
         </li>
         <li>
           <a href="../index.html?rechazo=desconocido">Motivo ambiguo</a> —

@@ -27,6 +27,14 @@
   var PROMPT_USUARIO = 0;
   var PROMPT_SECRETO = 1;
 
+  /* Tipos de mensaje de LightDM: 0 = informativo, 1 = error. Hasta ahora
+     alMensajePam() los ignoraba y trataba todo por igual; hace falta
+     distinguirlos porque el mismo texto de pam_pwquality puede llegar como
+     rechazo (enforcing=1, no deja cambiar) o como simple aviso (enforcing=0,
+     el cambio sigue adelante). Ver alMensajePam(). */
+  var MENSAJE_INFO = 0;
+  var MENSAJE_ERROR = 1;
+
   var MODO_INACTIVO = "inactivo";
   var MODO_ACCESO = "acceso";
   var MODO_RECUPERACION = "recuperacion";
@@ -969,6 +977,24 @@
      «Account is locked» y «Password has expired». Los de pam_sss hay que
      confirmarlos en un equipo del parque; ver CHECKLIST-VM.md.
 
+     Hay un tercer origen, y es el que provocó el fallo de d-jefaturabach: los
+     de libpwquality (pwquality_strerror), que pam_pwquality reenvía prefijados
+     con «BAD PASSWORD: ». Ese módulo va PRIMERO en common-password y con
+     «requisite», así que rechazaba la contraseña nueva antes de que pam_sss
+     hablara con el directorio y, a los tres intentos, tumbaba el cambio entero
+     con PAM_MAXTRIES. El paquete lo desactiva para las cuentas del directorio
+     (local_users_only en /etc/security/pwquality.conf, ver el postinst), pero
+     las filas siguen aquí como red: en un equipo donde ese ajuste no esté
+     aplicado, el usuario tiene que leer el motivo y no un formulario vacío.
+
+     Que llegan en INGLÉS está comprobado en un equipo del parque, y por un
+     motivo distinto al de pam_sss: libpwquality usa el textdomain
+     «libpwquality» y no hay ningún catálogo .mo instalado, así que
+     pwquality_check() devuelve el texto sin traducir aunque el sistema esté en
+     es_ES.UTF-8. Por eso las reglas se anclan en el MOTIVO y nunca en el
+     prefijo «BAD PASSWORD», que sí se traduciría el día que alguien instale
+     los catálogos de Linux-PAM.
+
      Cada fila dice:
        contexto  en qué momento tiene sentido (ver CTX_*)
        prueba    expresión regular sobre el texto ORIGINAL en inglés
@@ -979,6 +1005,10 @@
                  accesos que siguen adelante
        ayuda     si se le añade la coletilla configurable LOCKED_ACCOUNT_HELP,
                  para que cada centro ponga su extensión o su correo
+       anotar    si, además de traducirse, el literal original se registra en el
+                 log. Sólo lo lleva la fila de último recurso: una fila que
+                 encaja deja de pasar por el avisar() de «sin traducción», y sin
+                 esto se perdería el texto con el que ampliar la tabla
 
      Se devuelve la PRIMERA fila que encaje después de filtrar por contexto,
      así que el orden importa: el aviso de caducidad PRÓXIMA va antes que el de
@@ -1017,12 +1047,104 @@
     { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
       prueba: /old password (is )?not accepted|invalid credentials/i,
       texto: "No se ha podido verificar la contraseña actual. Vuelva a iniciar sesión e inténtelo de nuevo." },
+    /* --- Rechazos de pam_pwquality (libpwquality/cracklib) --------------
+       El ORDEN de este grupo es lo único que lo hace funcionar, así que no se
+       toca sin volver a comprobarlo. Hay una prueba que lo fija, sin
+       dependencias y con los literales reales:
+
+           cd recoverpass-greeter && node tests/tabla-mensajes.js
+
+       libpwquality tiene sus propias razones («The password is a palindrome»),
+       pero las de cracklib llegan TODAS envueltas en la misma cadena:
+       «The password fails the dictionary check - <razón>». Es decir, «it is WAY
+       too short», «it is based upon your username», «it is too
+       simplistic/systematic», «it is all whitespace» y «it does not contain
+       enough DIFFERENT characters» contienen todas el texto del diccionario.
+       Por eso la fila del diccionario va AL FINAL del grupo: cualquier razón
+       concreta tiene que poder ganarle antes, y ella se queda como reserva de
+       las razones de cracklib que no estén enumeradas aquí. Si se pone antes,
+       a quien puso una contraseña corta se le dice que usó una palabra del
+       diccionario.
+
+       Y todo el grupo va delante de la fila /quality/ de más abajo, que es
+       demasiado laxa para dejarla ganar.
+
+       Las filas de «less than N ...» y la de las clases de carácter son hoy
+       casi inalcanzables, porque REQUISITOS_COMPLEJIDAD ya exige las cuatro
+       clases antes de dejar enviar el formulario. Se dejan por los equipos cuyo
+       pwquality.conf sea más estricto que la lista que se pinta en pantalla: no
+       son código muerto, son el caso en el que el semáforo verde y el sistema
+       no coinciden, que es justo el fallo que se está arreglando. */
     { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
-      prueba: /too short|minimum.*length/i,
+      prueba: /too short|shorter than \d+ characters?|minimum.*length/i,
       texto: "La contraseña nueva es demasiado corta." },
     { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /same as the old (one|password)/i,
+      texto: "La contraseña nueva no puede ser igual a la actual." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /too similar to the old|differs with case changes only|does not differ enough/i,
+      texto: "La contraseña nueva se parece demasiado a la anterior. Cambie más caracteres." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /contains the user ?name|based upon your (user|login) ?name|based on your username/i,
+      texto: "La contraseña nueva no puede contener su nombre de usuario." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /too simplistic|too systematic|too simple\b/i,
+      texto: "La contraseña nueva sigue un patrón demasiado previsible. Pruebe con otra." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /monotonic character sequence|same characters consecutively|enough different characters/i,
+      texto: "La contraseña nueva repite demasiado los mismos caracteres. Use caracteres más variados." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /all whitespace/i,
+      texto: "La contraseña nueva no puede ser sólo espacios." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /national insurance/i,
+      texto: "La contraseña nueva se parece a un número de identificación. Pruebe con otra." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /palindrome/i,
+      texto: "La contraseña nueva se lee igual del revés. Pruebe con otra." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /forbidden words/i,
+      texto: "La contraseña nueva contiene una palabra que la política del equipo no admite." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /less than \d+ digits?/i,
+      texto: "La contraseña nueva debe llevar al menos un número." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /less than \d+ uppercase/i,
+      texto: "La contraseña nueva debe llevar al menos una letra mayúscula." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /less than \d+ lowercase/i,
+      texto: "La contraseña nueva debe llevar al menos una letra minúscula." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /less than \d+ (non-alphanumeric|special)/i,
+      texto: "La contraseña nueva debe llevar al menos un símbolo." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /character classes/i,
+      texto: "La contraseña nueva debe combinar mayúsculas, minúsculas, números y símbolos." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /passwords do not match/i,
+      texto: "Las dos contraseñas no coinciden." },
+
+    /* Reserva del chequeo de diccionario: cualquier razón de cracklib que no
+       tenga fila propia arriba. Va después de todas ellas a propósito. */
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
+      prueba: /fails the dictionary check|dictionary word/i,
+      texto: "La contraseña nueva se basa en una palabra del diccionario. Combine varias palabras, o intercale números y símbolos." },
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false,
       prueba: /quality/i,
-      texto: "La contraseña nueva no cumple la política de calidad del directorio." }
+      texto: "La contraseña nueva no cumple la política de calidad del directorio." },
+
+    /* --- Último recurso, sólo para pam_pwquality ------------------------
+       El prefijo «BAD PASSWORD:» lo ponen pam_pwquality y pam_unix y sólo
+       aparece en el cambio de contraseña, así que se puede afirmar que la
+       nueva es débil sin adivinar nada. Va al final para no robarle ninguna
+       razón concreta a las filas de arriba.
+
+       Lleva «anotar» porque, al encajar, traducirMensajePam() ya no llamaría a
+       avisar() y se perdería la línea de log con la que se amplía la tabla, que
+       es el procedimiento documentado en el apartado 9 del README. */
+    { contexto: CTX_CAMBIO, motivo: true, ayuda: false, anotar: true,
+      prueba: /^\s*BAD PASSWORD/i,
+      texto: "El sistema ha rechazado la contraseña nueva por ser demasiado fácil de adivinar. Pruebe con otra distinta." }
 
     /* TEXTOS QUE NO SE TRADUCEN A NINGÚN MOTIVO, A PROPÓSITO. Pueden venir de
        cualquier sitio, y confundirlos sería acusar de bloqueo a quien sólo se
@@ -1067,6 +1189,12 @@
         continue;
       }
       if (fila.prueba.test(t)) {
+        if (fila.anotar) {
+          /* La fila encaja, pero es la de último recurso: interesa el literal
+             exacto para poder darle su propia fila. Mismo procedimiento que un
+             mensaje sin traducción. */
+          avisar("mensaje de pam_pwquality sin fila propia: " + t);
+        }
         return {
           texto: fila.ayuda ? conAyuda(fila.texto) : fila.texto,
           motivo: !!fila.motivo
@@ -1085,29 +1213,64 @@
     return { texto: "", motivo: false };
   }
 
-  function alMensajePam(texto) {
+  function alMensajePam(texto, tipo) {
+    /* Traza de TODO show_message que llega al tema, incluidos los que se
+       descartan justo debajo. Es lo que faltó en el incidente de
+       d-jefaturabach: no se vio ningún aviso en pantalla y no hubo forma de
+       saber si la señal había llegado siquiera. Con esta línea se distinguen de
+       un vistazo los cuatro motivos posibles: que la señal no llegue (no hay
+       línea), que la descarte el reparto del mando entre pantallas duplicadas
+       (otroDueno=true), que el texto venga vacío, o que se pintara y no se
+       viera. Va por avisar() —console.warn— porque cualquier console.error
+       abre el diálogo de error_prompt.py encima de la pantalla de acceso. */
+    avisar(
+      "show_message tipo=" + tipo + " otroDueno=" + otroDueno +
+        " modo=" + modo + ": " + texto
+    );
     if (otroDueno) {
       return;
     }
     if (!texto) {
       return;
     }
+    /* El tipo puede no llegar: conectarSenal() cae al estilo antiguo de
+       globales en versiones viejas del greeter, y ahí el segundo argumento
+       viene undefined. Se toma como error, que es lo que se venía haciendo con
+       todo. Ojo con Number(undefined): da NaN y no encajaría con ninguna de las
+       dos constantes. */
+    var severidad = tipo === undefined || tipo === null ? MENSAJE_ERROR : Number(tipo);
+    var esError = severidad !== MENSAJE_INFO;
     var ctx = modo === MODO_CAMBIO_CLAVE ? CTX_CAMBIO : CTX_ACCESO;
     var aviso = traducirMensajePam(texto, ctx);
     if (!aviso.texto) {
       return; /* sin traducción en el acceso: no se pinta nada */
     }
-    ultimoMensajePam = aviso.texto;
+    /* Sólo los rechazos se guardan como último aviso. alCompletar() lo usa
+       como texto final de la rama del cambio de contraseña, y un informativo
+       («La contraseña caducará pronto») acabaría anunciándose como el motivo de
+       que el cambio no se pudo hacer. */
+    if (esError) {
+      ultimoMensajePam = aviso.texto;
+    }
     /* El motivo sólo se guarda si de verdad explica un rechazo y hay un flujo
        en curso: un show_message que llegue después de un cancel_authentication
-       no debe quedarse pegado al siguiente intento. */
-    ultimoMotivoRechazo = aviso.motivo && modo !== MODO_INACTIVO ? aviso.texto : "";
-    /* Clase «error» sólo cuando es un rechazo del acceso: el
+       no debe quedarse pegado al siguiente intento.
+
+       Y sólo si PAM lo ha mandado como error. Esto importa con pam_pwquality:
+       con «enforcing = 0» ese módulo manda el mismo «BAD PASSWORD: ...» como
+       aviso informativo de un cambio que SÍ va a funcionar, y guardarlo como
+       motivo haría que alCompletar() acusara de fallo a un cambio correcto. La
+       decisión de si un texto puede servir de motivo la sigue tomando la tabla
+       (campo «motivo»); el tipo sólo puede quitar ese permiso, nunca darlo. */
+    ultimoMotivoRechazo =
+      aviso.motivo && esError && modo !== MODO_INACTIVO ? aviso.texto : "";
+    /* Clase «error» cuando es un rechazo: en el acceso el
        authentication_complete que viene detrás lo va a repintar igual en rojo,
-       y así no se ve el fogonazo en gris. Dentro del cambio de contraseña se
-       sigue pintando sin clase, como hasta ahora, porque ahí muchos avisos van
-       seguidos de un reintento. */
-    mostrarMensaje(aviso.texto, aviso.motivo && ctx === CTX_ACCESO ? "error" : "");
+       y así no se ve el fogonazo en gris; dentro del cambio de contraseña el
+       rechazo de la contraseña nueva se pinta en rojo aquí mismo, porque detrás
+       viene un reintento y no un authentication_complete que lo repinte. Un
+       aviso informativo se queda sin clase en los dos contextos. */
+    mostrarMensaje(aviso.texto, aviso.motivo && esError ? "error" : "");
   }
 
   function alCompletar() {

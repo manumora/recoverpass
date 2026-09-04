@@ -31,9 +31,11 @@ Description: kiosco de recuperación de contraseña para la pantalla de acceso
  navegador.
  .
  Los scripts de mantenedor crean la cuenta local restringida, la ocultan de la
- lista de usuarios y añaden a /etc/pam.d/lightdm un bloque delimitado que
- permite entrar a esa cuenta sin contraseña. Todo ello se deshace al
- desinstalar.
+ lista de usuarios y añaden dos bloques delimitados a sendos conffiles ajenos:
+ en /etc/pam.d/lightdm, para que esa cuenta entre sin contraseña; y en
+ /etc/security/pwquality.conf, para que pam_pwquality no juzgue las contraseñas
+ de los usuarios del directorio y sea éste la única autoridad. Todo ello se
+ deshace al desinstalar.
  .
  web-greeter no está en los repositorios de Ubuntu y Chromium se distribuye como
  snap, así que ninguno de los dos se puede exigir como dependencia: van en

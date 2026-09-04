@@ -147,7 +147,8 @@ Después de ejecutar el script de instalación:
 
 El paquete pasa `lintian` sin errores ni avisos, y el ciclo de instalación,
 reinstalación, desinstalación y purgado está verificado de forma automática,
-incluyendo que `/etc/pam.d/lightdm` queda byte a byte idéntico al original
+incluyendo que los dos conffiles ajenos que toca —`/etc/pam.d/lightdm` y
+`/etc/security/pwquality.conf`— quedan byte a byte idénticos al original
 después de purgar. El tema se ha probado con una pantalla de acceso
 simulada, sin errores de consola.
 
@@ -188,6 +189,14 @@ cambia el greeter del sistema. Un error aquí, o un fallo de JavaScript en el
 tema, **puede dejar el equipo sin pantalla de acceso**. Pruébelo antes en una
 máquina virtual y deje SSH accesible. El procedimiento de recuperación desde un
 terminal de texto está documentado en el README del paquete.
+
+**Cambia quién juzga la calidad de las contraseñas.** El paquete añade
+`local_users_only` a `/etc/security/pwquality.conf` para que `pam_pwquality` no
+valide las contraseñas de los usuarios del directorio: sin eso rechazaba por su
+cuenta contraseñas que el directorio sí acepta y el cambio obligatorio de
+contraseña fallaba sin explicación. Las cuentas locales conservan todas las
+comprobaciones. Si su centro quiere que el equipo también valide, no instale
+este paquete sin revisar antes ese ajuste.
 
 **Hay una cuenta que entra sin contraseña, por diseño.** Es el fundamento de
 todo esto: cualquiera con acceso físico al equipo puede abrir la sesión kiosco y

@@ -1,3 +1,71 @@
+recoverpass-greeter (0.0.9) noble; urgency=medium
+
+  * La calidad de la contraseña la decide el directorio, no el equipo. En un
+    equipo del parque, una profesora con la contraseña marcada para cambio
+    obligatorio rellenaba bien el formulario y la pantalla volvía al
+    formulario vacío sin decir nada. La causa estaba en
+    /etc/pam.d/common-password: pam_pwquality va PRIMERO y con «requisite»,
+    así que validaba la contraseña nueva con sus propias reglas (cracklib,
+    diccionario, longitud) y al tercer rechazo devolvía PAM_MAXTRIES,
+    tumbando el chauthtok entero sin que pam_sss llegara a hablar con el
+    directorio. Comprobado en el propio equipo: sssd_LDAP.log no registraba
+    ninguna operación de cambio, la contraseña nueva no salía de la máquina.
+    «Jefatura25» es el ejemplo perfecto: el formulario la acepta en verde y
+    cracklib la rechaza por palabra de diccionario.
+  * El postinst añade ahora un bloque delimitado a
+    /etc/security/pwquality.conf con «local_users_only», y el postrm lo
+    retira dejando el fichero byte a byte como estaba. Con esa opción
+    pam_pwquality se salta sus comprobaciones para las cuentas que no están
+    en /etc/passwd, es decir para todos los usuarios del directorio, pero
+    SIGUE preguntando la contraseña, así que los «use_authtok» de pam_unix y
+    pam_sss que vienen detrás funcionan igual. Las cuentas locales (root, el
+    administrador del equipo, recoverpass) conservan cracklib.
+  * Tres guardas antes de tocar ese fichero, todas por lo mismo: es conffile
+    de otro paquete. No se toca si libpwquality es anterior a 1.4.1 (no
+    conoce la opción, y escribir una clave desconocida hace que la biblioteca
+    no pueda leer su configuración y pam_pwquality puede abortar entonces el
+    cambio de contraseña de todo el mundo, root incluido), ni si el fichero no
+    termina en salto de línea (el bloque va al final y el marcador quedaría
+    pegado a la última línea, haciéndolo irretirable), ni si no existe. Sigue
+    sin usarse pam-auth-update: eso regeneraría common-password y common-auth,
+    que en estos equipos llevan cambios hechos a mano.
+  * La pantalla de acceso explica ahora los rechazos de pam_pwquality en vez
+    de dejar el formulario en blanco. El orden de esas filas de la tabla de
+    traducciones es parte del comportamiento: cracklib devuelve casi todas
+    sus razones envueltas en «The password fails the dictionary check
+    - <razón>», así que la fila del diccionario va al final del grupo, como
+    reserva. Si fuese antes, a quien pusiera una contraseña corta se le diría
+    que ha usado una palabra del diccionario. Cierra el grupo una fila de
+    último recurso para cualquier «BAD PASSWORD:» desconocido, que además
+    registra el literal íntegro en el log para poder darle su propia fila.
+  * alMensajePam() deja de descartar el segundo argumento de show_message.
+    LightDM distingue informativo de error y hacía falta: con «enforcing = 0»
+    pam_pwquality manda el mismo «BAD PASSWORD» como aviso de un cambio que
+    sí va a funcionar, y sin distinguirlo el greeter lo enseñaba como si
+    hubiera fallado. El tipo sólo puede quitarle a un texto el permiso de
+    servir como motivo del rechazo, nunca dárselo: eso lo sigue decidiendo la
+    tabla. Y los rechazos del cambio se pintan en rojo, que antes salían en
+    el gris tenue de #mensaje justo antes de que el formulario reapareciera
+    vacío.
+  * Traza permanente de todo show_message, con el tipo, el modo y el reparto
+    del mando entre pantallas duplicadas. En el incidente no se vio ningún
+    aviso y no hubo forma de saber si la señal había llegado siquiera, porque
+    el log del greeter de esa sesión se había perdido. Con esta línea se
+    distinguen los cuatro motivos posibles de un vistazo.
+  * El mock emite los literales reales en inglés en vez de un texto en
+    castellano, trae una contraseña de prueba por cada motivo de rechazo y
+    reproduce el «retry=3»: al tercer rechazo, PAM_MAXTRIES y se acaba el
+    cambio, que es el incidente completo sin necesidad de un LDAP delante.
+  * Prueba nueva de la tabla de traducciones, sin dependencias:
+    «node tests/tabla-mensajes.js». Comprueba las nueve razones de cracklib,
+    las catorce propias de libpwquality, las de ppolicy y pam_sss, y que los
+    textos ambiguos del acceso siguen sin traducirse. Se escribió porque cazó
+    dos errores de orden reales mientras se hacía este cambio. La batería del
+    contenedor gana nueve comprobaciones del bloque de pwquality, incluido el
+    cmp byte a byte tras purgar.
+
+ -- Manuel Mora Gordillo <manuel.mora.gordillo@gmail.com>  Fri, 04 Sep 2026 13:08:02 +0200
+
 recoverpass-greeter (0.0.8) noble; urgency=medium
 
   * Cuando el directorio rechaza el acceso y PAM explica por qué, la pantalla

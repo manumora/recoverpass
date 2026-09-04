@@ -16,6 +16,13 @@ PAMFILE=/etc/pam.d/lightdm
 PAM_INI='# BEGIN recoverpass-greeter'
 PAM_FIN='# END recoverpass-greeter'
 PAM_LINEA='auth  sufficient  pam_succeed_if.so user = recoverpass quiet'
+# /etc/security/pwquality.conf es conffile de libpwquality-common; se toca
+# con los mismos marcadores y la misma copia previa que el fichero de PAM.
+PWQFILE=/etc/security/pwquality.conf
+PWQ_INI='# BEGIN recoverpass-greeter'
+PWQ_FIN='# END recoverpass-greeter'
+# local_users_only existe desde libpwquality 1.4.1. Ver el apartado 3b.
+PWQ_VERSION_MINIMA=1.4.1
 DROPIN=/etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf
 GREETER_DESKTOP=/usr/share/xgreeters/recoverpass-greeter.desktop
 AS_DIR=/var/lib/AccountsService/users
@@ -212,6 +219,112 @@ EOF
         rm -f "$tmp" "$tmp.limpio"
     else
         aviso "ATENCIÓN: no existe $PAMFILE. ¿Está instalado lightdm?"
+    fi
+
+    # --- 3b. La calidad de la contraseña la decide el directorio ----------
+    # pam_pwquality va PRIMERO en common-password y con «requisite», así que
+    # rechazaba la contraseña nueva de un usuario LDAP con sus propias reglas
+    # (cracklib, diccionario, longitud) y a los tres intentos devolvía
+    # PAM_MAXTRIES, tumbando el cambio obligatorio entero sin que pam_sss
+    # llegara a hablar con el directorio. Comprobado en un equipo real: sssd no
+    # registraba ninguna operación de cambio, la contraseña nueva no salía del
+    # equipo. «Jefatura25» es el ejemplo: el formulario del greeter la acepta y
+    # cracklib la rechaza por palabra de diccionario.
+    #
+    # Tampoco aquí se usa pam-auth-update: quitar el perfil «pwquality»
+    # regeneraría common-password y common-auth, y en estos equipos esos
+    # ficheros llevan cambios a mano (pam_group, pam_mkhomedir, pam_umask,
+    # pam_ldap) que se perderían. Con local_users_only basta y no se toca
+    # ningún fichero de pam.d.
+    PWQ_VERSION=$(dpkg-query -W -f='${Version}' libpwquality-common 2>/dev/null || true)
+    if [ ! -f "$PWQFILE" ]; then
+        # Sin libpwquality no hay pam_pwquality en la pila y no hay nada que
+        # desactivar; no se crea el fichero, que es conffile de otro paquete.
+        # Sólo se avisa en el caso anómalo: el módulo en la pila sin su config.
+        if grep -q 'pam_pwquality' /etc/pam.d/common-password 2>/dev/null; then
+            aviso "ATENCIÓN: common-password usa pam_pwquality y no existe $PWQFILE."
+            aviso "  Instale libpwquality-common y reinstale este paquete, o el"
+            aviso "  cambio obligatorio de contraseña puede fallar con los"
+            aviso "  usuarios del directorio."
+        fi
+    elif [ -z "$PWQ_VERSION" ] ||
+         ! dpkg --compare-versions "$PWQ_VERSION" ge "$PWQ_VERSION_MINIMA"; then
+        # Escribir una opción que la biblioteca no conozca hace que
+        # pwquality_read_config() devuelva «Unknown setting» (comprobado: -5) y
+        # pam_pwquality puede abortar entonces el chauthtok de TODO EL MUNDO,
+        # root incluido. Sin la versión mínima no se toca nada: el fallo que se
+        # quiere arreglar es malo, ése sería peor.
+        aviso "ATENCIÓN: libpwquality ${PWQ_VERSION:-desconocida} no admite local_users_only."
+        aviso "  Hacen falta $PWQ_VERSION_MINIMA o posterior. Se deja $PWQFILE intacto:"
+        aviso "  el cambio obligatorio de contraseña puede seguir fallando con"
+        aviso "  los usuarios del directorio."
+    elif [ -n "$(tail -c 1 "$PWQFILE")" ]; then
+        # El bloque va al FINAL, al contrario que el de PAM, así que si el
+        # fichero no acabase en salto de línea el marcador quedaría pegado a la
+        # última línea, el sed anclado (/^# BEGIN...$/) no lo encontraría nunca
+        # y el bloque sería irretirable. Añadir el salto por nuestra cuenta
+        # cambiaría bytes del original y rompería la reversión exacta, así que
+        # se avisa y se deja en paz.
+        aviso "ATENCIÓN: $PWQFILE no termina en salto de línea; no se toca."
+        aviso "  Añádaselo y reinstale el paquete."
+    else
+        [ -e "$COPIAS/security-pwquality.conf.orig" ] || \
+            cp -a "$PWQFILE" "$COPIAS/security-pwquality.conf.orig"
+
+        # Si el administrador ya tenía la opción puesta por su cuenta, se
+        # respeta tal cual y nuestro bloque sobra: la opción va POR PRESENCIA,
+        # así que con una sola línea en cualquier parte del fichero ya está
+        # activa. No se comenta ni se modifica ninguna línea ajena; eso sería
+        # una segunda edición que habría que deshacer, y la promesa es devolver
+        # el fichero byte a byte como estaba.
+        if sed "/^$PWQ_INI\$/,/^$PWQ_FIN\$/d" "$PWQFILE" |
+           grep -Eq '^[[:space:]]*local_users_only'; then
+            aviso "$PWQFILE ya traía una línea «local_users_only» propia."
+            aviso "  Se respeta; el bloque de este paquete es redundante pero"
+            aviso "  inofensivo, y al desinstalar la suya seguirá ahí."
+        fi
+
+        tmp=$(mktemp)
+        # Quita un bloque anterior (idempotencia entre reinstalaciones y entre
+        # versiones, porque el sed borra el rango completo cualesquiera que
+        # fueran los comentarios de dentro) y añade el nuestro al final.
+        sed "/^$PWQ_INI\$/,/^$PWQ_FIN\$/d" "$PWQFILE" > "$tmp.limpio"
+        cat "$tmp.limpio" > "$tmp"
+        cat >> "$tmp" <<'EOPWQ'
+# BEGIN recoverpass-greeter
+# La calidad de la contraseña la decide el directorio (overlay ppolicy), no el
+# equipo. Con esta opción pam_pwquality se salta sus comprobaciones para las
+# cuentas que no están en /etc/passwd, es decir para todos los usuarios LDAP,
+# pero SIGUE preguntando la contraseña, así que los «use_authtok» de pam_unix
+# y pam_sss que vienen detrás funcionan igual.
+#
+# Las cuentas locales (root, el administrador del equipo, recoverpass)
+# conservan cracklib: esto no relaja nada para ellas.
+#
+# Es una bandera POR PRESENCIA: comprobado que «local_users_only = 0» también
+# la activa, porque el valor se ignora. La única forma de desactivarla es
+# quitar la línea. Ver pwquality.conf(5).
+#
+# Este bloque lo pone el postinst de recoverpass-greeter y lo retira el postrm.
+# No lo edite a mano: se reescribe en cada instalación.
+local_users_only
+# END recoverpass-greeter
+EOPWQ
+
+        # Comprobación antes de pisar nada: el resultado tiene que traer la
+        # opción sin comentar y conservar intacto el resto del fichero. Si algo
+        # no cuadra se deja como estaba: mejor con pwquality que sin conffile.
+        if [ -s "$tmp" ] && grep -qx 'local_users_only' "$tmp" &&
+           [ "$(sed "/^$PWQ_INI\$/,/^$PWQ_FIN\$/d" "$tmp" | md5sum)" = \
+             "$(sed "/^$PWQ_INI\$/,/^$PWQ_FIN\$/d" "$PWQFILE" | md5sum)" ]; then
+            cat "$tmp" > "$PWQFILE"   # se conservan dueño, permisos e inodo
+            echo "recoverpass-greeter: pam_pwquality ya no juzga las contraseñas de los usuarios del directorio."
+        else
+            aviso "ATENCIÓN: no se ha podido editar $PWQFILE con garantías."
+            aviso "  El fichero se ha dejado como estaba y pam_pwquality seguirá"
+            aviso "  rechazando contraseñas de usuarios LDAP. Revíselo a mano."
+        fi
+        rm -f "$tmp" "$tmp.limpio"
     fi
 
     # --- 4. Políticas del navegador ----------------------------------------

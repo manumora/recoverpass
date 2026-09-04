@@ -28,6 +28,11 @@ Si el greeter no arranca, la salida está en el apartado 6 del README.
 - [ ] `getent passwd recoverpass` existe, con shell `/bin/bash`.
 - [ ] `sudo head -3 /etc/pam.d/lightdm` muestra el bloque `# BEGIN recoverpass-greeter`
       con la línea `pam_succeed_if` **antes** de `@include common-auth`.
+- [ ] `sudo tail -16 /etc/security/pwquality.conf` muestra el bloque
+      `# BEGIN recoverpass-greeter` **al final del fichero**, con la línea
+      `local_users_only` sin comentar.
+- [ ] `printf '%s\n' 'Kf7$muralla' | pwscore` no dice nada de «cannot read the
+      pwquality configuration»: la biblioteca sigue leyendo su configuración.
 - [ ] `cat /etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf` existe.
 - [ ] `grep -c greeter-session /etc/lightdm/lightdm.conf` da `0`, o el postinst
       ha avisado de que ese fichero tiene prioridad.
@@ -109,7 +114,31 @@ Configuración real:
 - [ ] Con esa pantalla puesta, **Escape** la cierra y devuelve el formulario de
       acceso. También el ratón y el Intro.
 - [ ] Si el directorio rechaza la contraseña nueva y PAM vuelve a preguntar, el
-      formulario reaparece **por delante**, no detrás de la pantalla tapada.
+      formulario reaparece **por delante**, no detrás de la pantalla tapada, y
+      con el motivo **en rojo**, no en gris tenue.
+
+El fallo de `d-jefaturabach`, que es lo que hay que ver arreglado:
+
+- [ ] Con un usuario del directorio marcado con `pwdReset`, poner de contraseña
+      nueva una **palabra de diccionario** que cumpla los requisitos del
+      formulario (por ejemplo `Colegio1$`). Antes esto se rechazaba tres veces y
+      volvía al formulario vacío sin decir nada. Ahora el cambio **se completa**
+      y la sesión arranca.
+- [ ] La contraseña llega de verdad al directorio, que es la comprobación que
+      importa. Cualquiera de las tres, de menor a mayor autoridad:
+      `grep -i 'passwd\|extended' /var/log/sssd/sssd_LDAP.log` registra la
+      operación (hace falta `debug_level = 7` en `/etc/sssd/sssd.conf`);
+      `ldapwhoami -x -D "uid=USUARIO,ou=...,dc=..." -w 'LA_NUEVA'` responde con
+      el `dn`; o el atributo `pwdChangedTime` está actualizado y `pwdReset` ya
+      no está (`ldapsearch ... '+'`).
+- [ ] **Y las cuentas locales siguen protegidas**, que es la otra mitad del
+      ajuste y la que nadie comprueba: `sudo pamtester lightdm UN_USUARIO_LOCAL
+      chauthtok` con `Colegio1` **sigue** rechazándola por palabra de
+      diccionario. Si no la rechaza, `local_users_only` está haciendo más de lo
+      que se le pide: pare y revíselo.
+- [ ] Un aviso **informativo** (`?rechazo=avisocaducidad` en el mock, o una
+      contraseña a punto de caducar de verdad) no se pinta en rojo y no se queda
+      como el mensaje final del intento.
 - [ ] Se puede recorrer toda la pantalla sólo con el tabulador y el foco se ve
       siempre.
 - [ ] El selector de sesión cambia la sesión que arranca.
@@ -174,14 +203,22 @@ Este apartado es el que decide si el diseño con Chromium es válido.
 - [ ] `sudo diff /var/backups/recoverpass-greeter/pam.d-lightdm.orig /etc/pam.d/lightdm`
       antes del purgado — o compruebe tras purgar que el fichero no menciona
       `recoverpass`.
+- [ ] Lo mismo con el segundo conffile:
+      `sudo diff /var/backups/recoverpass-greeter/security-pwquality.conf.orig /etc/security/pwquality.conf`
+      antes del purgado, y `dpkg -V libpwquality-common` sin salida después.
 
 ## 10. Convivencia con actualizaciones
 
 - [ ] `sudo apt install --reinstall lightdm`: dpkg pregunta por el conffile
       `/etc/pam.d/lightdm` modificado. Conserve la versión local (`N`) y
       compruebe que el botón sigue funcionando.
-- [ ] Instalar el paquete dos veces seguidas no duplica la línea de PAM
-      (ya comprobado en contenedor, pero conviene verlo también aquí).
+- [ ] `sudo apt install --reinstall libpwquality-common`: dpkg pregunta por el
+      conffile `/etc/security/pwquality.conf` modificado. Conserve la versión
+      local (`N`); si acepta la nueva, reinstale este paquete y compruebe que el
+      bloque vuelve a estar.
+- [ ] Instalar el paquete dos veces seguidas no duplica la línea de PAM ni el
+      bloque de `pwquality.conf` (ya comprobado en contenedor, pero conviene
+      verlo también aquí).
 
 ---
 

@@ -94,6 +94,7 @@ ni ningún fichero.
 | Declara `/var/lib` en `snap set system homedirs` | `purge` |
 | Escribe `/var/lib/AccountsService/users/recoverpass` con `SystemAccount=true` | `remove` |
 | Añade un bloque delimitado a `/etc/pam.d/lightdm`, con copia previa | `remove` |
+| Añade un bloque delimitado a `/etc/security/pwquality.conf` con `local_users_only`, con copia previa | `remove` |
 | Genera `$POLICY_DIR/recoverpass.json` | `remove` |
 | Escribe `/etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf` | `prerm` |
 
@@ -218,6 +219,7 @@ ambas son decisiones conscientes:
 | Ruta | Qué pasa con ella |
 |---|---|
 | `/etc/pam.d/lightdm` | Se le añade un bloque delimitado. Al purgar queda **byte a byte** como estaba |
+| `/etc/security/pwquality.conf` | Se le añade un bloque delimitado con `local_users_only`, para que `pam_pwquality` no juzgue las contraseñas de los usuarios del directorio. Al purgar queda **byte a byte** como estaba |
 | `/etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf` | Selección del greeter y `display-setup-script` para duplicar las pantallas |
 | `/var/lib/AccountsService/users/recoverpass` | Oculta la cuenta de la lista |
 | `$POLICY_DIR/recoverpass.json` | Políticas del navegador |
@@ -387,6 +389,22 @@ iniciar sesión, para no hacer que el usuario la teclee dos veces.
   cargado en el overlay `ppolicy`—, pero se piden en el tema por coherencia
   con las mismas cuatro reglas que ya exige la web de EduControl. No son
   configurables.
+
+> **El equipo también opinaba, y ahí estuvo el fallo.** Además del directorio,
+> `/etc/pam.d/common-password` lleva `pam_pwquality` como primer módulo y con
+> `requisite`, así que validaba la contraseña nueva con sus propias reglas
+> (cracklib, diccionario, longitud mínima 8, similitud) y, a los tres rechazos,
+> devolvía `PAM_MAXTRIES` y tumbaba el cambio obligatorio entero **sin que
+> `pam_sss` llegara a hablar con el directorio**. Comprobado en un equipo real:
+> `sssd_LDAP.log` no registraba ninguna operación de cambio, y el usuario veía
+> el formulario reaparecer vacío. Contraseñas como `Jefatura25` o `Colegio1`
+> pasan el semáforo verde de esta lista y mueren en cracklib por palabra de
+> diccionario. Desde la versión 0.0.9 el `postinst` añade `local_users_only` a
+> `/etc/security/pwquality.conf`, con lo que `pam_pwquality` se salta sus
+> comprobaciones para las cuentas que no están en `/etc/passwd` —es decir, para
+> todos los usuarios del directorio— y el directorio queda como única autoridad.
+> Las cuentas locales conservan cracklib. Ver el apartado 13 para lo que eso
+> implica al actualizar `libpwquality-common`.
 - **Distinta de la actual**, que el directorio sí rechazaría, y **las dos
   casillas coinciden**, que se comprueba bajo la segunda.
 
@@ -407,6 +425,24 @@ verificar la actual— y, para cualquier otro que no reconozca, muestra un
 aviso genérico en español y registra el texto original (`console.warn`, sin
 diálogo emergente) para poder ampliar la lista más adelante
 (`TRADUCCIONES_MENSAJE_PAM` en `js/greeter.js`).
+
+La tabla cubre también los rechazos de `pam_pwquality`, que **no vienen del
+directorio sino del propio equipo**: llegan prefijados con `BAD PASSWORD: ` y
+en inglés (comprobado que no hay catálogos de traducción de `libpwquality`
+instalados, así que el locale español no los traduce). Con `local_users_only`
+puesto no deberían verse nunca con un usuario del directorio; las filas están
+por los equipos donde ese ajuste no se haya podido aplicar, y porque un motivo
+concreto en pantalla siempre es mejor que un formulario vacío.
+
+El **orden** de esas filas importa y no se debe tocar sin volver a comprobarlo:
+cracklib devuelve casi todas sus razones envueltas en la misma cadena, «The
+password fails the dictionary check - <razón>», así que «demasiado corta», «se
+basa en su nombre de usuario» o «patrón previsible» contienen todas el texto del
+diccionario. Por eso la fila del diccionario va **al final** del grupo, como
+reserva: si fuese antes, a quien pusiera una contraseña corta se le diría que
+usó una palabra del diccionario. Y cierra el grupo una fila de último recurso
+para cualquier `BAD PASSWORD:` desconocido, que además registra el literal
+íntegro en el log para poder darle su propia fila.
 
 Según lo que responda el directorio, o bien PAM vuelve a pedir la contraseña
 nueva (política de calidad, las dos no coinciden: se reintenta sin volver a
@@ -462,9 +498,20 @@ los textos que ya se traducen.
 
 El mock de desarrollo (véase el apartado 10) reproduce este flujo completo
 con el parámetro `?debecambiar=1`, incluida la repregunta por la contraseña
-actual, la entrega en bloque de «New»/«Retype», y dos contraseñas de prueba
-que fuerzan cada tipo de rechazo (`Prohibida9$` reintenta, `Repetida9$` cierra
-la autenticación con el motivo). Los detalles están en
+actual y la entrega en bloque de «New»/«Retype». Trae una contraseña de prueba
+por cada motivo de rechazo, con el literal real en inglés que manda PAM:
+`Prohibida9$` (diccionario), `Cortita9$`, `Igualita9$`, `Parecida9$`,
+`Usuario9$`, `Simplona9$`, `Monotona9$`, `Palindroma9$`, `Digitos9$`,
+`Clases9$`, `Vetadas9$`, y `Desconocida9$` para el aviso de último recurso.
+`Repetida9$` cierra la autenticación con el motivo, en vez de reintentar. Y
+repitiendo tres veces cualquier rechazo se reproduce el `retry=3` de
+`pam_pwquality`: al tercero, `PAM_MAXTRIES` y se acaba el cambio, que es
+exactamente el incidente que motivó todo esto.
+
+Ninguna de esas contraseñas es realista, y no puede serlo: una débil de verdad
+como `Colegio1` no llega nunca a PAM desde el formulario, porque le falta un
+símbolo y el tema no la deja enviar. Ahí está el fallo original en una línea: el
+semáforo verde del tema y cracklib no juzgaban lo mismo. Los detalles están en
 `theme/mock/index.html`.
 
 ---
@@ -628,20 +675,39 @@ defecto sin desinstalar nada: edite el `Exec=` de
 por `--theme gruvbox`. web-greeter cae solo a `gruvbox` si el directorio del tema
 no existe.
 
-**Si `/etc/pam.d/lightdm` quedara mal**, hay copia del original en
-`/var/backups/recoverpass-greeter/pam.d-lightdm.orig`.
+**Si alguno de los dos conffiles ajenos quedara mal**, hay copia del original
+en `/var/backups/recoverpass-greeter/`: `pam.d-lightdm.orig` y
+`security-pwquality.conf.orig`.
 
 ---
 
 ## 13. Limitaciones conocidas
 
-**`/etc/pam.d/lightdm` es un conffile de otro paquete.** Es la única edición in
-situ que hace el paquete, con marcadores y copia previa. Consecuencia: cuando
-`lightdm` se actualice, dpkg detectará el fichero modificado y preguntará qué
-hacer. Conserve la versión local (`N`, la opción por defecto) o acepte la nueva y
-reinstale este paquete para que vuelva a insertar el bloque. No hay alternativa:
-`pam.d` no admite drop-ins, y un perfil de `pam-auth-update` tocaría
-`common-auth`, que afecta también a `login`, `sshd` y `sudo`.
+**Se editan in situ dos conffiles de otros paquetes.** `/etc/pam.d/lightdm`
+(de `lightdm`) y `/etc/security/pwquality.conf` (de `libpwquality-common`), los
+dos con marcadores, copia previa y borrado exacto al desinstalar. Consecuencia:
+cuando cualquiera de esos dos paquetes se actualice, dpkg detectará el fichero
+modificado y preguntará qué hacer. Conserve la versión local (`N`, la opción por
+defecto) o acepte la nueva y reinstale este paquete para que vuelva a insertar
+su bloque.
+
+No hay alternativa mejor en ninguno de los dos casos. `pam.d` no admite
+drop-ins, y un perfil de `pam-auth-update` tocaría `common-auth` y
+`common-password`, que afectan también a `login`, `sshd` y `sudo`; en el parque,
+además, esos ficheros llevan cambios hechos a mano (`pam_group`,
+`pam_mkhomedir`, `pam_umask umask=002`, `pam_ldap`) que una regeneración se
+llevaría por delante, y con ellos la creación de directorios personales.
+`libpwquality` 1.4.4, la de Ubuntu 22.04, **no lee** `pwquality.conf.d`: sólo
+conoce el fichero, así que un drop-in propio tampoco es opción.
+
+**`local_users_only` necesita `libpwquality` 1.4.1 o posterior.** Por debajo, el
+`postinst` detecta la versión y **no toca el fichero**, avisando: escribir una
+opción que la biblioteca no conozca hace que devuelva «Unknown setting», y
+`pam_pwquality` puede abortar entonces el cambio de contraseña de todo el mundo,
+`root` incluido. Tampoco se toca el fichero si no termina en salto de línea (el
+bloque va al final y el marcador quedaría pegado a la última línea, haciéndolo
+irretirable) ni si no existe, porque entonces no hay `pam_pwquality` que
+desactivar.
 
 **Las políticas son globales para el navegador elegido.** Véase el apartado 7.
 
@@ -675,8 +741,32 @@ aplicación gráfica.
 Construye el paquete en un contenedor `ubuntu:24.04`, pasa `lintian` sin errores
 ni avisos y comprueba el ciclo completo: instalación con LightDM de verdad, doble
 instalación sin duplicar nada, generación y validación del JSON de políticas,
-que el home queda en `/var/lib`, `remove`, `purge` y que `/etc/pam.d/lightdm`
-queda byte a byte como el original.
+que el home queda en `/var/lib`, `remove`, `purge` y que los dos conffiles
+ajenos que toca —`/etc/pam.d/lightdm` y `/etc/security/pwquality.conf`— quedan
+byte a byte como los originales.
+
+### La tabla de traducciones de PAM
+
+```bash
+node tests/tabla-mensajes.js     # requiere Node; no entra en probar.sh
+```
+
+Comprueba `TRADUCCIONES_MENSAJE_PAM` de `js/greeter.js` con los literales
+reales que manda PAM: las nueve razones de cracklib, las catorce propias de
+libpwquality, las de `ppolicy` y `pam_sss`, que la fila de último recurso lleva
+`anotar` —y por tanto registra el original en el log—, y que los textos
+ambiguos del acceso (`Permission denied.` y compañía) siguen **sin** traducirse.
+
+**Si se toca el orden de esa tabla, hay que volver a lanzarla.** En esa tabla
+gana la primera fila que encaja, así que el orden es parte del comportamiento.
+Existe porque al añadir los rechazos de `pam_pwquality` aparecieron dos errores
+del mismo tipo: cracklib devuelve casi todas sus razones envueltas en «The
+password fails the dictionary check - <razón>», así que con la fila del
+diccionario colocada delante de las concretas, a quien ponía una contraseña
+corta se le decía que había usado una palabra del diccionario.
+
+Node hace falta sólo para esta prueba: el paquete no lo necesita para nada, y
+por eso no entra en la batería del contenedor.
 
 Lo que no se puede probar en un contenedor —el greeter en pantalla, el snap de
 Chromium, el arranque real de la sesión— está en

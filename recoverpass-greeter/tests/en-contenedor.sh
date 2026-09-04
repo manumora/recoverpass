@@ -10,7 +10,10 @@
 #   5. que el JSON de políticas se genera bien y es JSON válido
 #   6. que la duplicación de pantallas elige el modo más alto común
 #   7. remove: se retira todo lo que toca a otros paquetes
-#   8. purge: /etc/pam.d/lightdm queda byte a byte como el original
+#   8. purge: /etc/pam.d/lightdm y /etc/security/pwquality.conf quedan byte a
+#      byte como los originales
+#   9. que el bloque de pwquality.conf activa local_users_only una sola vez, va
+#      al final del fichero y no rompe la lectura de la configuración
 #
 # No se puede probar aquí: el greeter en pantalla, el snap de Chromium ni el
 # arranque real de la sesión. Eso va en CHECKLIST-VM.md.
@@ -31,6 +34,7 @@ apt-get update -qq >/dev/null
 apt-get install -y -qq --no-install-recommends \
     build-essential debhelper devscripts lintian fakeroot \
     lightdm yad x11-utils x11-xserver-utils fonts-open-sans libnss3-tools \
+    libpam-pwquality libpwquality-common libpwquality-tools cracklib-runtime \
     python3 diffutils file >/dev/null 2>&1
 ok "dependencias de construcción y del paquete instaladas"
 
@@ -38,6 +42,15 @@ ok "dependencias de construcción y del paquete instaladas"
 # lightdm, para el diff final.
 cp -a /etc/pam.d/lightdm /root/lightdm.pam.original
 ok "guardada copia del /etc/pam.d/lightdm original"
+
+# Y del pwquality.conf, que es el segundo conffile ajeno que se toca.
+PWQ=/etc/security/pwquality.conf
+if [ -f "$PWQ" ]; then
+    cp -a "$PWQ" /root/pwquality.conf.original
+    ok "guardada copia del $PWQ original"
+else
+    falla "no existe $PWQ; ¿se ha instalado libpwquality-common?"
+fi
 
 titulo "1. Construcción"
 rm -rf /build && mkdir -p /build
@@ -144,6 +157,50 @@ fi
 
 [ -f /var/backups/recoverpass-greeter/pam.d-lightdm.orig ] \
     && ok "copia de seguridad de PAM guardada" || falla "no hay copia de seguridad de PAM"
+
+# --- pwquality: la calidad la decide el directorio, no el equipo -----------
+MARCAS=$(grep -c 'BEGIN recoverpass-greeter' "$PWQ" 2>/dev/null || true)
+[ "$MARCAS" -eq 1 ] && ok "un solo marcador en $PWQ" \
+                    || falla "hay $MARCAS marcadores en $PWQ"
+grep -qx 'local_users_only' "$PWQ" \
+    && ok "local_users_only activa (bandera por presencia)" \
+    || falla "no está local_users_only sin comentar en $PWQ"
+sed -n '/BEGIN recoverpass-greeter/,/END recoverpass-greeter/p' "$PWQ" \
+    | grep -qx 'local_users_only' \
+    && ok "la opción va dentro del bloque delimitado" \
+    || falla "la opción está suelta, fuera del bloque"
+# El bloque tiene que ser lo ÚLTIMO: es lo que hace que sea retirable de una
+# pieza sin arrastrar nada de lo que hubiera detrás.
+tail -1 "$PWQ" | grep -q 'END recoverpass-greeter' \
+    && ok "el bloque es lo último del fichero" \
+    || falla "el bloque no cierra el fichero: $(tail -1 "$PWQ")"
+[ -f /var/backups/recoverpass-greeter/security-pwquality.conf.orig ] \
+    && ok "copia de seguridad de pwquality guardada" \
+    || falla "no hay copia de seguridad de pwquality"
+# La aserción fuerte: quitando nuestro bloque el fichero ya es el original, sin
+# esperar al purgado. Caza cualquier edición colateral en el momento de hacerla.
+sed '/BEGIN recoverpass-greeter/,/END recoverpass-greeter/d' "$PWQ" \
+    | cmp -s - /root/pwquality.conf.original \
+    && ok "sin el bloque, $PWQ ya es idéntico al original" \
+    || falla "el paquete ha cambiado algo más de $PWQ"
+# Y que libpwquality siga pudiendo leer su configuración: una clave que no
+# conozca hace que devuelva «Unknown setting» y pam_pwquality puede abortar
+# entonces el cambio de contraseña de TODO EL MUNDO, root incluido.
+# Ojo con el criterio: pwscore sale con código distinto de 0 por CUALQUIER
+# contraseña rechazada, así que el código de salida no sirve. Lo único que se
+# quiere saber es si se ha podido LEER la configuración, y eso se ve en el
+# texto: una clave desconocida da «Cannot read the pwquality configuration».
+SALIDA_PWQ=$(printf '%s\n' 'Kf7$muralla' | pwscore 2>&1 || true)
+if printf '%s' "$SALIDA_PWQ" | grep -qi 'read the pwquality configuration\|unknown setting'; then
+    falla "libpwquality no puede leer $PWQ"
+    printf '%s\n' "$SALIDA_PWQ" | head -3
+else
+    ok "libpwquality lee la configuración sin errores"
+fi
+# Lo que NO se puede comprobar aquí: que local_users_only salte de verdad las
+# comprobaciones de un usuario ausente de /etc/passwd. pwscore usa el uid que
+# lo invoca y en el contenedor root es local, así que siempre comprueba. Eso va
+# en CHECKLIST-VM.md, con un usuario del directorio de verdad.
 
 titulo "4. Políticas del navegador"
 POL=/etc/chromium-browser/policies/managed/recoverpass.json
@@ -333,6 +390,13 @@ if [ -f "$DROPIN" ]; then
     cmp -s /build/dropin-antes "$DROPIN" \
         && ok "reinstalar deja el drop-in byte a byte igual" \
         || falla "reinstalar cambia el drop-in"
+
+    # El bloque de pwquality tampoco se duplica al reinstalar.
+    MARCAS=$(grep -c 'BEGIN recoverpass-greeter' "$PWQ" 2>/dev/null || true)
+    VECES_OPT=$(grep -cx 'local_users_only' "$PWQ" 2>/dev/null || true)
+    [ "$MARCAS" -eq 1 ] && [ "$VECES_OPT" -eq 1 ] \
+        && ok "reinstalar no duplica el bloque de pwquality" \
+        || falla "tras reinstalar hay $MARCAS marcadores y $VECES_OPT opciones en $PWQ"
 else
     falla "no se ha escrito $DROPIN con web-greeter presente"
     grep -i 'ATENCIÓN' /build/install2.log || true
@@ -346,6 +410,10 @@ else
 fi
 grep -q 'recoverpass' /etc/pam.d/lightdm && falla "queda rastro en /etc/pam.d/lightdm" \
                                          || ok "sin rastro en /etc/pam.d/lightdm"
+grep -q 'recoverpass' "$PWQ" && falla "queda rastro en $PWQ" \
+                            || ok "sin rastro en $PWQ"
+grep -qx 'local_users_only' "$PWQ" && falla "local_users_only sigue activa tras remove" \
+                                   || ok "local_users_only retirada"
 [ -e /etc/lightdm/lightdm.conf.d/99-recoverpass-greeter.conf ] \
     && falla "queda el drop-in del greeter" || ok "drop-in del greeter retirado"
 [ -e "$POL" ] && falla "quedan las políticas del navegador" || ok "políticas del navegador retiradas"
@@ -371,24 +439,32 @@ getent passwd recoverpass >/dev/null && falla "la cuenta sigue existiendo tras p
 [ -e /var/backups/recoverpass-greeter ] && falla "quedan copias en /var/backups" || ok "copias borradas"
 [ -e /usr/share/web-greeter/themes/recoverpass ] && falla "queda el tema" || ok "tema borrado"
 
-titulo "9. /etc/pam.d/lightdm byte a byte"
+titulo "9. Los conffiles de otros paquetes, byte a byte"
 if cmp -s /root/lightdm.pam.original /etc/pam.d/lightdm; then
-    ok "idéntico al original tras el purgado"
+    ok "/etc/pam.d/lightdm idéntico al original tras el purgado"
 else
-    falla "difiere del original tras el purgado"
+    falla "/etc/pam.d/lightdm difiere del original tras el purgado"
     diff -u /root/lightdm.pam.original /etc/pam.d/lightdm
+fi
+if cmp -s /root/pwquality.conf.original "$PWQ"; then
+    ok "$PWQ idéntico al original tras el purgado"
+else
+    falla "$PWQ difiere del original tras el purgado"
+    diff -u /root/pwquality.conf.original "$PWQ"
 fi
 
 titulo "10. dpkg no reporta ficheros huérfanos"
 # Se filtran los «missing» de documentación y traducciones: la imagen de
 # contenedor excluye esas rutas de serie, no tienen nada que ver con nosotros.
-RESTOS=$(dpkg -V lightdm 2>/dev/null | grep -v '^missing' | grep -v '^$' || true)
-if [ -z "$RESTOS" ]; then
-    ok "dpkg -V lightdm no encuentra ningún fichero modificado"
-else
-    falla "dpkg -V lightdm informa de cambios:"
-    echo "$RESTOS"
-fi
+for PAQUETE in lightdm libpwquality-common; do
+    RESTOS=$(dpkg -V "$PAQUETE" 2>/dev/null | grep -v '^missing' | grep -v '^$' || true)
+    if [ -z "$RESTOS" ]; then
+        ok "dpkg -V $PAQUETE no encuentra ningún fichero modificado"
+    else
+        falla "dpkg -V $PAQUETE informa de cambios:"
+        echo "$RESTOS"
+    fi
+done
 
 titulo "Resultado"
 if [ "$FALLOS" -eq 0 ]; then
